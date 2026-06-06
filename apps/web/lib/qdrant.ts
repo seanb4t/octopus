@@ -95,7 +95,10 @@ async function withQdrantRetry<T>(fn: () => Promise<T>, label: string, maxAttemp
 }
 
 const COLLECTION_NAME = "code_chunks";
-const VECTOR_SIZE = 3072; // text-embedding-3-large
+// Default 3072 (OpenAI text-embedding-3-large). Override via EMBEDDING_DIM for
+// other embedders (e.g. bge-m3 = 1024). Must match the embed model's output
+// dimension — collections are created at this size and cannot be resized.
+const VECTOR_SIZE = Number(process.env.EMBEDDING_DIM ?? 3072);
 const SPARSE_VECTOR_NAME = "sparse";
 
 let client: QdrantClient | null = null;
@@ -104,6 +107,9 @@ export function getQdrantClient(): QdrantClient {
   if (!client) {
     client = new QdrantClient({
       url: process.env.QDRANT_URL!,
+      ...(process.env.QDRANT_API_KEY
+        ? { apiKey: process.env.QDRANT_API_KEY }
+        : {}),
     });
   }
   return client;
