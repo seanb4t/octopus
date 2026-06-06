@@ -82,3 +82,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "apps/web/server.js"]
+
+# --- migrator ---
+# Runs `prisma migrate deploy` as a Kubernetes initContainer. The runner image
+# above is node:22-alpine without bun/prisma/migration files, so migrations are
+# applied from a dedicated image built off the builder stage (which has the bun
+# toolchain, the generated Prisma client, and packages/db/prisma/migrations).
+FROM builder AS migrator
+WORKDIR /app/packages/db
+CMD ["bun", "run", "db:deploy"]
