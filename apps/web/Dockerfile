@@ -55,3 +55,12 @@ EXPOSE 3000
 ENV HOSTNAME=0.0.0.0
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 CMD ["node", "apps/web/server.js"]
+
+# --- migrator ---
+# Runs `prisma migrate deploy` as a Kubernetes initContainer. The runner image
+# above is node:22-alpine without bun/prisma/migration files, so migrations are
+# applied from a dedicated image built off the builder stage (which has the bun
+# toolchain, the generated Prisma client, and packages/db/prisma/migrations).
+FROM builder AS migrator
+WORKDIR /app/packages/db
+CMD ["bun", "run", "db:deploy"]
