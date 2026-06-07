@@ -133,7 +133,10 @@ function filterAndTruncate(texts: string[]): { validTexts: string[]; validIndexe
 // (dense content like lockfiles or CJK tokenize at ~2 chars/token in
 // cl100k/o200k tokenizers).
 const OPENAI_MAX_BATCH_TOKENS = 200_000;
-const OPENAI_MAX_BATCH_ITEMS = 512;
+// Items per request. EMBEDDING_BATCH_ITEMS lowers it for OpenAI-compatible
+// gateways in front of slower backends, so each request finishes within the
+// gateway timeout.
+const OPENAI_MAX_BATCH_ITEMS = Math.max(1, Number(process.env.EMBEDDING_BATCH_ITEMS ?? 512));
 
 async function embedWithOpenAI(
   texts: string[],
