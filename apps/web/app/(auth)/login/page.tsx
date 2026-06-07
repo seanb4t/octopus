@@ -28,12 +28,27 @@ export default function LoginPage() {
     microsoft: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
   };
 
+  // Generic OIDC provider, gated on the same env as the genericOAuth plugin in auth.ts.
+  const oidc =
+    process.env.OIDC_CLIENT_ID && process.env.OIDC_CLIENT_SECRET && process.env.OIDC_DISCOVERY_URL
+      ? {
+          providerId: process.env.OIDC_PROVIDER_ID || "oidc",
+          name: process.env.OIDC_PROVIDER_NAME || "SSO",
+        }
+      : null;
+  const hideSocial = process.env.DISABLE_SOCIAL_LOGINS === "true";
+
   // Email/password sign-in + signup is self-hosted only (see auth.ts gate).
   const passwordAuth = process.env.NEXT_PUBLIC_OCTOPUS_SELF_HOSTED === "true";
 
   return (
     <Suspense>
-      <LoginContent socialEnabled={socialEnabled} passwordAuth={passwordAuth} />
+      <LoginContent
+        socialEnabled={socialEnabled}
+        passwordAuth={passwordAuth}
+        oidc={oidc}
+        hideSocial={hideSocial}
+      />
     </Suspense>
   );
 }
