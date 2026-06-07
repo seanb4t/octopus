@@ -7,7 +7,7 @@ name: build-image
 
 on:
   push:
-    branches: [feat/configurable-embedding-dim, master]
+    branches: [feat/configurable-embedding-dim, feat/generic-oidc-auth, master]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -55,6 +55,8 @@ jobs:
           build-args: |
             NEXT_PUBLIC_GITHUB_APP_SLUG=${{ env.GITHUB_APP_SLUG }}
             NEXT_PUBLIC_BUILD_ID=${{ github.sha }}
+            NEXT_PUBLIC_OIDC_PROVIDER_ID=authentik
+            NEXT_PUBLIC_OIDC_PROVIDER_NAME=Authentik
           tags: |
             ${{ env.WEB_IMAGE }}:latest
             ${{ env.WEB_IMAGE }}:${{ github.sha }}

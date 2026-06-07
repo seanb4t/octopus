@@ -17,7 +17,7 @@ import {
   FieldSeparator,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { IconMail, IconBrandGithub } from "@tabler/icons-react";
+import { IconMail, IconBrandGithub, IconKey } from "@tabler/icons-react";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -148,6 +148,23 @@ function LoginContent() {
           <MicrosoftIcon className="size-5 shrink-0" />
           Sign in with Microsoft
         </Button>
+        {process.env.NEXT_PUBLIC_OIDC_PROVIDER_NAME && (
+          <Button
+            type="button"
+            className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
+            onClick={() => {
+              trackEvent("login_method_click", { method: "oidc" });
+              signIn.oauth2({
+                providerId:
+                  process.env.NEXT_PUBLIC_OIDC_PROVIDER_ID ?? "oidc",
+                callbackURL: callbackUrl,
+              });
+            }}
+          >
+            <IconKey className="size-5 shrink-0" />
+            Sign in with {process.env.NEXT_PUBLIC_OIDC_PROVIDER_NAME}
+          </Button>
+        )}
       </div>
 
       <div className="my-6">
