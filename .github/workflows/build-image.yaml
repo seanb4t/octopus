@@ -57,6 +57,7 @@ jobs:
             NEXT_PUBLIC_BUILD_ID=${{ github.sha }}
             NEXT_PUBLIC_OIDC_PROVIDER_ID=authentik
             NEXT_PUBLIC_OIDC_PROVIDER_NAME=Authentik
+            NEXT_PUBLIC_DISABLE_SOCIAL_LOGINS=true
           tags: |
             ${{ env.WEB_IMAGE }}:latest
             ${{ env.WEB_IMAGE }}:${{ github.sha }}

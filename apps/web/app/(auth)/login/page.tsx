@@ -115,39 +115,45 @@ function LoginContent() {
 
       {/* Social buttons */}
       <div className="mt-8 flex flex-col gap-3">
-        <Button
-          type="button"
-          className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
-          onClick={() => {
-            trackEvent("login_method_click", { method: "google" });
-            signIn.social({ provider: "google", callbackURL: callbackUrl });
-          }}
-        >
-          <GoogleIcon className="size-5 shrink-0" />
-          Sign in with Google
-        </Button>
-        <Button
-          type="button"
-          className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
-          onClick={() => {
-            trackEvent("login_method_click", { method: "github" });
-            signIn.social({ provider: "github", callbackURL: callbackUrl });
-          }}
-        >
-          <IconBrandGithub data-icon="inline-start" className="size-5" />
-          Sign in with GitHub
-        </Button>
-        <Button
-          type="button"
-          className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
-          onClick={() => {
-            trackEvent("login_method_click", { method: "microsoft" });
-            signIn.social({ provider: "microsoft", callbackURL: callbackUrl });
-          }}
-        >
-          <MicrosoftIcon className="size-5 shrink-0" />
-          Sign in with Microsoft
-        </Button>
+        {/* Built-in social logins. Hidden when NEXT_PUBLIC_DISABLE_SOCIAL_LOGINS
+            is "true" (e.g. when using only a generic OIDC provider + magic link). */}
+        {process.env.NEXT_PUBLIC_DISABLE_SOCIAL_LOGINS !== "true" && (
+          <>
+            <Button
+              type="button"
+              className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
+              onClick={() => {
+                trackEvent("login_method_click", { method: "google" });
+                signIn.social({ provider: "google", callbackURL: callbackUrl });
+              }}
+            >
+              <GoogleIcon className="size-5 shrink-0" />
+              Sign in with Google
+            </Button>
+            <Button
+              type="button"
+              className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
+              onClick={() => {
+                trackEvent("login_method_click", { method: "github" });
+                signIn.social({ provider: "github", callbackURL: callbackUrl });
+              }}
+            >
+              <IconBrandGithub data-icon="inline-start" className="size-5" />
+              Sign in with GitHub
+            </Button>
+            <Button
+              type="button"
+              className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
+              onClick={() => {
+                trackEvent("login_method_click", { method: "microsoft" });
+                signIn.social({ provider: "microsoft", callbackURL: callbackUrl });
+              }}
+            >
+              <MicrosoftIcon className="size-5 shrink-0" />
+              Sign in with Microsoft
+            </Button>
+          </>
+        )}
         {process.env.NEXT_PUBLIC_OIDC_PROVIDER_NAME && (
           <Button
             type="button"
