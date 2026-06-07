@@ -25,6 +25,7 @@ import {
   IconGitPullRequest,
   IconSparkles,
   IconArrowRight,
+  IconKey,
 } from "@tabler/icons-react";
 
 /** Which OAuth providers the deployment has configured. Computed server-side
@@ -34,6 +35,9 @@ export type SocialEnabled = {
   github: boolean;
   microsoft: boolean;
 };
+
+/** A generic OIDC provider configured through the OIDC_* env (see ./page.tsx). */
+export type OidcProvider = { providerId: string; name: string };
 
 // magic-link (default) | password sign-in | sign-up. The password modes only
 // render when the server reports password auth is enabled (self-hosted).
@@ -91,9 +95,13 @@ const LOGIN_FEATURES = [
 export function LoginContent({
   socialEnabled,
   passwordAuth,
+  oidc = null,
+  hideSocial = false,
 }: {
   socialEnabled: SocialEnabled;
   passwordAuth: boolean;
+  oidc?: OidcProvider | null;
+  hideSocial?: boolean;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -199,6 +207,21 @@ export function LoginContent({
 
       {/* Social buttons */}
       <div className="mt-8 flex flex-col gap-3">
+        {oidc && (
+          <Button
+            type="button"
+            className="w-full bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/[0.1] h-11 text-sm font-medium"
+            onClick={() => {
+              trackEvent("login_method_click", { method: "oidc" });
+              signIn.oauth2({ providerId: oidc.providerId, callbackURL: callbackUrl });
+            }}
+          >
+            <IconKey className="size-5 shrink-0" />
+            Sign in with {oidc.name}
+          </Button>
+        )}
+        {!hideSocial && (
+        <>
         <Button
           type="button"
           disabled={!socialEnabled.google}
@@ -238,9 +261,13 @@ export function LoginContent({
           <MicrosoftIcon className="size-5 shrink-0" />
           Sign in with Microsoft{!socialEnabled.microsoft ? " (not configured)" : ""}
         </Button>
+        </>
+        )}
       </div>
 
-      {!socialEnabled.google &&
+      {!oidc &&
+        !hideSocial &&
+        !socialEnabled.google &&
         !socialEnabled.github &&
         !socialEnabled.microsoft && (
         <p className="mt-3 text-center text-xs text-[#555]">
