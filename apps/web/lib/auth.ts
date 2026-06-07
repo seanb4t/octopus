@@ -2,7 +2,7 @@ import "server-only";
 import { signupMarketingVisit } from "./marketing-capture";
 import { betterAuth } from "better-auth";
 import { APIError, getIp } from "better-auth/api";
-import { magicLink } from "better-auth/plugins";
+import { magicLink, genericOAuth } from "better-auth/plugins";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@octopus/db";
 import { sendEmail } from "./email";
@@ -306,6 +306,26 @@ export const auth = betterAuth({
         });
       },
     }),
+    // Optional generic OIDC provider (e.g. Authentik, Keycloak, Zitadel).
+    // Enabled when OIDC_DISCOVERY_URL + client credentials are set, mirroring
+    // the conditional `microsoft` social provider below.
+    ...(process.env.OIDC_CLIENT_ID &&
+    process.env.OIDC_CLIENT_SECRET &&
+    process.env.OIDC_DISCOVERY_URL
+      ? [
+          genericOAuth({
+            config: [
+              {
+                providerId: process.env.OIDC_PROVIDER_ID || "oidc",
+                clientId: process.env.OIDC_CLIENT_ID,
+                clientSecret: process.env.OIDC_CLIENT_SECRET,
+                discoveryUrl: process.env.OIDC_DISCOVERY_URL,
+                scopes: ["openid", "email", "profile"],
+              },
+            ],
+          }),
+        ]
+      : []),
   ],
   socialProviders: {
     google: {
@@ -382,7 +402,16 @@ export const auth = betterAuth({
       // Restricted to providers whose email is verified at the IdP (Google,
       // GitHub, Microsoft work accounts via Graph mail) so we can't be tricked
       // into linking by an attacker who controls an unverified email.
-      trustedProviders: ["google", "github", "microsoft"],
+      trustedProviders: [
+        "google",
+        "github",
+        "microsoft",
+        ...(process.env.OIDC_CLIENT_ID &&
+        process.env.OIDC_CLIENT_SECRET &&
+        process.env.OIDC_DISCOVERY_URL
+          ? [process.env.OIDC_PROVIDER_ID || "oidc"]
+          : []),
+      ],
     },
   },
 });
