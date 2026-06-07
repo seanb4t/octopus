@@ -7,7 +7,7 @@ name: build-image
 
 on:
   push:
-    branches: [feat/configurable-embedding-dim, feat/generic-oidc-auth, master]
+    branches: [feat/configurable-embedding-dim, feat/generic-oidc-auth, feat/configurable-embedding-batch, master]
     tags: ["v*"]
   workflow_dispatch:
 

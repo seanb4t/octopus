@@ -22,7 +22,10 @@ const MAX_EMBEDDING_CHARS = 24_000;
 // can tokenize at ~2 chars/token, so ASCII gets chars/2 and non-ASCII counts as
 // 1 token per char (CJK in cl100k/o200k often hits 1+ tokens per char).
 const MAX_BATCH_TOKENS = 200_000;
-const MAX_BATCH_ITEMS = 512;
+// Items per embeddings request. Default 512 suits OpenAI-scale backends;
+// self-hosted embedding backends with lower throughput (e.g. ollama) may need
+// a much smaller batch so each request completes within gateway timeouts.
+const MAX_BATCH_ITEMS = Math.max(1, Number(process.env.EMBEDDING_BATCH_ITEMS ?? 512));
 
 function estimateTokens(text: string): number {
   let ascii = 0;

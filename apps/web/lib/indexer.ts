@@ -579,15 +579,17 @@ export async function indexRepository(
 
   // 5. Create embeddings in batches
   const texts = allChunks.map((c) => c.text);
-  const totalBatches = Math.ceil(texts.length / 512);
+  // Keep in sync with EMBEDDING_BATCH_ITEMS in lib/embeddings.ts.
+  const batchItems = Math.max(1, Number(process.env.EMBEDDING_BATCH_ITEMS ?? 512));
+  const totalBatches = Math.ceil(texts.length / batchItems);
   onLog(`Generating embeddings for ${texts.length} chunks (${totalBatches} batch${totalBatches > 1 ? "es" : ""})...`);
 
   const vectors: number[][] = [];
-  for (let i = 0; i < texts.length; i += 512) {
+  for (let i = 0; i < texts.length; i += batchItems) {
     if (signal?.aborted) throw new Error("Indexing cancelled");
 
-    const batch = texts.slice(i, i + 512);
-    const batchNum = Math.floor(i / 512) + 1;
+    const batch = texts.slice(i, i + batchItems);
+    const batchNum = Math.floor(i / batchItems) + 1;
     if (totalBatches > 1) {
       onLog(`Processing embedding batch ${batchNum}/${totalBatches}...`);
     }
