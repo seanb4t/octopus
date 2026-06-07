@@ -184,7 +184,9 @@ export async function handleLargeReviewResult(
   const summaryBody = [
     summaryHeader,
     findingsBlock,
-    `<sub>Reviewed by [Octopus Review](https://octopus-review.ai) (large-PR pipeline, no inline comments).</sub>`,
+    process.env.DISABLE_REVIEW_BRANDING !== "true"
+      ? `<sub>Reviewed by [Octopus Review](https://octopus-review.ai) (large-PR pipeline, no inline comments).</sub>`
+      : null,
   ]
     .filter(Boolean)
     .join("\n\n");
