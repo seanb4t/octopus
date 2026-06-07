@@ -7,3 +7,7 @@ node_modules
 !.env.example
 docs
 *.md
+# CHANGELOG.md is COPYed by apps/web/Dockerfile (builder + runner) — re-include
+# it so the image build's COPY does not fail (the `*.md` ignore above would
+# otherwise exclude it from the build context).
+!CHANGELOG.md
