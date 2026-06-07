@@ -2184,7 +2184,9 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
       }
       const parts = [header];
       if (findingsBlock) parts.push(findingsBlock);
-      parts.push(`<sub>Reviewed by [Octopus Review](https://octopus-review.ai), an AI-powered PR review tool.</sub>`);
+      if (process.env.DISABLE_REVIEW_BRANDING !== "true") {
+        parts.push(`<sub>Reviewed by [Octopus Review](https://octopus-review.ai), an AI-powered PR review tool.</sub>`);
+      }
       return parts.join("\n\n");
     };
 
