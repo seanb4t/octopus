@@ -340,6 +340,7 @@ export async function POST(request: NextRequest) {
               files,
               "github",
               repo.organizationId,
+              (payload.pull_request?.merged_at as string | undefined) ?? undefined,
             );
             await prisma.repository.update({
               where: { id: repo.id },

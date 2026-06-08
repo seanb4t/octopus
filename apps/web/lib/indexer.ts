@@ -755,6 +755,12 @@ export async function incrementalIndex(
   changedFiles: { filename: string; status: string }[],
   provider: string = "github",
   organizationId?: string,
+  /**
+   * ISO date of the push/merge head commit. Stamped as lastModifiedAt on the
+   * re-indexed chunks. null when unknown — never fabricate with now(), which
+   * would fake freshness.
+   */
+  headCommitDate?: string,
 ): Promise<{ updatedFiles: number; removedFiles: number; newVectors: number }> {
   const removed = changedFiles
     .filter((f) => f.status === "removed")
@@ -849,6 +855,7 @@ export async function incrementalIndex(
       text: chunk.text,
       language: chunk.filePath.split(".").pop() ?? "unknown",
       indexedAt,
+      lastModifiedAt: headCommitDate ?? null,
     },
   }));
 

@@ -239,4 +239,28 @@ describe("incrementalIndex", () => {
     expect(typeof point.payload.endLine).toBe("number");
     expect(typeof point.payload.text).toBe("string");
   });
+
+  it("stamps lastModifiedAt from headCommitDate on incremental chunks", async () => {
+    const { incrementalIndex } = await import("@/lib/indexer");
+    await incrementalIndex(
+      "repo-1", "acme/app", "main", 123,
+      [{ filename: "src/index.ts", status: "modified" }],
+      "github", undefined, "2026-06-01T12:00:00Z",
+    );
+    const calls = mockUpsertChunks.mock.calls;
+    const points = calls[calls.length - 1][0] as { payload: { lastModifiedAt: string | null } }[];
+    expect(points[0].payload.lastModifiedAt).toBe("2026-06-01T12:00:00Z");
+  });
+
+  it("stamps lastModifiedAt null when headCommitDate is absent", async () => {
+    const { incrementalIndex } = await import("@/lib/indexer");
+    await incrementalIndex(
+      "repo-1", "acme/app", "main", 123,
+      [{ filename: "src/index.ts", status: "modified" }],
+      "github", undefined,
+    );
+    const calls = mockUpsertChunks.mock.calls;
+    const points = calls[calls.length - 1][0] as { payload: { lastModifiedAt: string | null } }[];
+    expect(points[0].payload.lastModifiedAt).toBeNull();
+  });
 });
