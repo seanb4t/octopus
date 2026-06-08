@@ -42,10 +42,6 @@ mock.module("@/lib/bitbucket", () => ({
   getAccessToken: () => Promise.resolve("bb-token"),
 }));
 
-mock.module("@/lib/octopus-ignore", () => ({
-  parseOctopusIgnore: () => ({ ignores: () => false }),
-}));
-
 import { parseGitLogNameStatus } from "@/lib/indexer";
 
 describe("parseGitLogNameStatus", () => {
