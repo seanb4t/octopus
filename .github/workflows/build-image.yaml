@@ -7,7 +7,7 @@ name: build-image
 
 on:
   push:
-    branches: [feat/configurable-embedding-dim, feat/generic-oidc-auth, feat/configurable-embedding-batch, feat/optional-review-branding, master]
+    branches: [feat/configurable-embedding-dim, feat/generic-oidc-auth, feat/configurable-embedding-batch, feat/optional-review-branding, feat/file-recency-metadata, feat/doc-aware-analysis, feat/recency-aware-review-context, master]
     tags: ["v*"]
   workflow_dispatch:
 
