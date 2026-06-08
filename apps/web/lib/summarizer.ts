@@ -1,4 +1,5 @@
-import { getRepoChunks } from "@/lib/qdrant";
+import { selectAnalysisChunks } from "@/lib/qdrant";
+import { formatAgeAnnotation } from "@/lib/recency";
 import { logAiUsage } from "@/lib/ai-usage";
 import { getReviewModel } from "@/lib/ai-client";
 import { createAiMessage } from "@/lib/ai-router";
@@ -14,7 +15,7 @@ export async function summarizeRepository(
     return { summary: "Skipped: monthly AI usage limit reached.", purpose: "Unknown" };
   }
 
-  const chunks = await getRepoChunks(repoId, 40);
+  const { chunks, medianCode } = await selectAnalysisChunks(repoId, 40);
 
   if (chunks.length === 0) {
     return {
@@ -23,7 +24,9 @@ export async function summarizeRepository(
     };
   }
 
-  const codeContext = chunks.join("\n\n---\n\n");
+  const codeContext = chunks
+    .map((c) => `// ${c.filePath}${formatAgeAnnotation(c.lastModifiedAt, medianCode, c.kind)}\n${c.text}`)
+    .join("\n\n---\n\n");
 
   const model = organizationId ? await getReviewModel(organizationId, repoId) : "claude-sonnet-4-20250514";
 
@@ -35,6 +38,7 @@ export async function summarizeRepository(
         {
           role: "user",
           content: `You are analyzing the repository "${fullName}". Below are code snippets from the repository.
+Documentation snippets (.md/.txt) describe intent at the time they were written — trust the code over prose where they disagree.
 
 Provide:
 1. **Purpose**: A single sentence (max 15 words) describing what this project does. Be specific, not generic.
