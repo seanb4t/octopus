@@ -254,6 +254,7 @@ export async function indexRepository(
   let contributorCount = 0;
   let contributors: Contributor[] = [];
   let resolvedDefaultBranch: string | undefined;
+  let recencyMap: Map<string, string> | null = null;
 
   if ((provider === "bitbucket" || provider === "gitlab") && organizationId) {
     // ── Bitbucket / GitLab indexing flow (clone-based) ──
@@ -326,6 +327,9 @@ export async function indexRepository(
         throw err;
       }
       onLog("Repository cloned successfully", "success");
+      if (process.env.INDEX_FILE_RECENCY === "true") {
+        recencyMap = await collectFileRecency(cloneUrl, gitAuthHeader, defaultBranch, onLog, signal);
+      }
 
       // 2. Walk the cloned directory to get all file paths
       onLog(`Scanning repository files...`);
@@ -539,6 +543,17 @@ export async function indexRepository(
       onLog("Could not fetch contributor count", "warning");
     }
 
+    if (process.env.INDEX_FILE_RECENCY === "true") {
+      const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
+      recencyMap = await collectFileRecency(
+        `https://github.com/${fullName}.git`,
+        `Basic ${basicAuth}`,
+        activeBranch,
+        onLog,
+        signal,
+      );
+    }
+
     // 2. Fetch file contents and chunk
     onLog("Fetching and chunking file contents...");
     const CONCURRENCY = 10;
@@ -706,6 +721,7 @@ export async function indexRepository(
       text: chunk.text,
       language: chunk.filePath.split(".").pop() ?? "unknown",
       indexedAt,
+      lastModifiedAt: recencyMap?.get(chunk.filePath) ?? null,
     },
   }));
 
