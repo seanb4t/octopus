@@ -60,6 +60,29 @@ function shouldIndex(path: string, size?: number, ig?: Ignore): boolean {
   return CODE_EXTENSIONS.has(ext);
 }
 
+// Parses `git log --format=COMMIT:%cI --name-status` output into a map of
+// path -> last-commit ISO date. The log is newest-first, so the first
+// occurrence of a path wins. Rename/copy lines (R<score>/C<score>\told\tnew)
+// record the NEW path — the old one no longer exists in the tree.
+export function parseGitLogNameStatus(log: string): Map<string, string> {
+  const map = new Map<string, string>();
+  let currentDate: string | null = null;
+  for (const line of log.split("\n")) {
+    if (line.startsWith("COMMIT:")) {
+      currentDate = line.slice("COMMIT:".length).trim();
+      continue;
+    }
+    if (!line || !currentDate) continue;
+    const parts = line.split("\t");
+    if (parts.length < 2) continue;
+    const status = parts[0];
+    const path = status.startsWith("R") || status.startsWith("C") ? parts[2] : parts[1];
+    if (!path) continue;
+    if (!map.has(path)) map.set(path, currentDate);
+  }
+  return map;
+}
+
 function chunkText(
   content: string,
   filePath: string,
