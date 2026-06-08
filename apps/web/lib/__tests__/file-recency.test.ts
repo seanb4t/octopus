@@ -1,4 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { collectFileRecency } from "@/lib/indexer";
+import { mkdtemp, rm as rmDir, writeFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
 
 // ── Mock external dependencies before importing ──
 
@@ -81,5 +89,45 @@ describe("parseGitLogNameStatus", () => {
 
   it("returns an empty map for empty input", () => {
     expect(parseGitLogNameStatus("").size).toBe(0);
+  });
+});
+
+describe("collectFileRecency", () => {
+  let repoDir: string;
+
+  beforeEach(async () => {
+    repoDir = await mkdtemp(join(tmpdir(), "recency-fixture-"));
+    const git = (args: string[], date?: string) =>
+      run("git", ["-C", repoDir, ...args], {
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t",
+          GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t",
+          ...(date ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}),
+        },
+      });
+    await run("git", ["init", "-b", "main", repoDir]);
+    // file:// partial clones need allowFilter on the source
+    await git(["config", "uploadpack.allowFilter", "true"]);
+    await mkdir(join(repoDir, "docs"), { recursive: true });
+    await writeFile(join(repoDir, "docs/design.md"), "old doc\n");
+    await git(["add", "."], undefined);
+    await git(["commit", "-m", "old"], "2024-01-01T00:00:00Z");
+    await writeFile(join(repoDir, "main.ts"), "new code\n");
+    await git(["add", "."], undefined);
+    await git(["commit", "-m", "new"], "2026-06-01T00:00:00Z");
+  });
+
+  it("dates each file by its last commit", async () => {
+    const map = await collectFileRecency(`file://${repoDir}`, undefined, "main", () => {});
+    expect(map.get("main.ts")?.startsWith("2026-06-01")).toBe(true);
+    expect(map.get("docs/design.md")?.startsWith("2024-01-01")).toBe(true);
+    await rmDir(repoDir, { recursive: true, force: true });
+  });
+
+  it("returns an empty map on clone failure instead of throwing", async () => {
+    const map = await collectFileRecency("file:///nonexistent-repo", undefined, "main", () => {});
+    expect(map.size).toBe(0);
+    await rmDir(repoDir, { recursive: true, force: true });
   });
 });

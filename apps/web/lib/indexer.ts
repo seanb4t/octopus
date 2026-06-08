@@ -83,6 +83,69 @@ export function parseGitLogNameStatus(log: string): Map<string, string> {
   return map;
 }
 
+const RECENCY_CLONE_TIMEOUT_MS = 120_000;
+const RECENCY_LOG_TIMEOUT_MS = 60_000;
+
+/**
+ * Builds a path -> last-commit-ISO-date map via a bare, blob-less clone
+ * (commits + trees only; cost scales with history size, not repo size).
+ * Returns an EMPTY map on any failure — the index run must never fail or
+ * block because of the recency scan. Paths absent from the map mean
+ * "age unknown"; the payload step writes lastModifiedAt: null for them.
+ */
+export async function collectFileRecency(
+  cloneUrl: string,
+  authHeader: string | undefined,
+  branch: string,
+  onLog: OnLog,
+  signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  const scanDir = join(tmpdir(), `octopus-recency-${Date.now()}`);
+  const args = ["clone", "--bare", "--filter=blob:none", "--single-branch", "--branch", branch];
+  const window = process.env.INDEX_FILE_RECENCY_WINDOW;
+  if (window) args.push(`--shallow-since=${window}`);
+  args.push(cloneUrl, scanDir);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    await execFileAsync("git", args, {
+      timeout: RECENCY_CLONE_TIMEOUT_MS,
+      signal: controller.signal,
+      env: {
+        ...process.env,
+        ...(authHeader
+          ? {
+              GIT_CONFIG_COUNT: "1",
+              GIT_CONFIG_KEY_0: "http.extraHeader",
+              GIT_CONFIG_VALUE_0: `Authorization: ${authHeader}`,
+            }
+          : {}),
+      },
+    });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", scanDir, "log", "--format=COMMIT:%cI", "--name-status"],
+      { timeout: RECENCY_LOG_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, signal: controller.signal },
+    );
+    const map = parseGitLogNameStatus(stdout);
+    onLog(`File-recency scan dated ${map.size} paths`, "success");
+    return map;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[indexer] File-recency scan failed (continuing without): ${msg}`);
+    onLog("File-recency scan failed — indexing continues without file dates", "warning");
+    return new Map();
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    try {
+      await rm(scanDir, { recursive: true, force: true });
+    } catch {
+      console.warn(`[indexer] Failed to clean up recency scan dir: ${scanDir}`);
+    }
+  }
+}
+
 function chunkText(
   content: string,
   filePath: string,
