@@ -1,4 +1,5 @@
-import { getRepoChunks, getKnowledgeChunksByOrg } from "@/lib/qdrant";
+import { selectAnalysisChunks, getKnowledgeChunksByOrg } from "@/lib/qdrant";
+import { formatAgeAnnotation, type AnalysisChunk } from "@/lib/recency";
 import { logAiUsage } from "@/lib/ai-usage";
 import { getReviewModel } from "@/lib/ai-client";
 import { createAiMessage } from "@/lib/ai-router";
@@ -39,16 +40,26 @@ export async function analyzeRepository(
 
   log("Fetching code chunks from vector database...");
   if (signal?.aborted) throw new Error("Analysis cancelled");
-  const chunks = await getRepoChunks(repoId, 80);
+  const { chunks, medianCode } = await selectAnalysisChunks(repoId, 80);
 
   if (chunks.length === 0) {
     log("No indexable content found", "warning");
     return "No indexable content found in this repository.";
   }
 
-  log(`Loaded ${chunks.length} code chunks`, "success");
+  const codeChunks = chunks.filter((c) => c.kind === "code");
+  const docChunks = chunks.filter((c) => c.kind === "doc");
+  log(`Loaded ${chunks.length} chunks (${codeChunks.length} code, ${docChunks.length} docs)`, "success");
 
-  let codeContext = chunks.join("\n\n---\n\n");
+  const header = (c: AnalysisChunk) =>
+    `// ${c.filePath}${formatAgeAnnotation(c.lastModifiedAt, medianCode, c.kind)}`;
+
+  let codeContext = codeChunks.map((c) => `${header(c)}\n${c.text}`).join("\n\n---\n\n");
+  if (docChunks.length > 0) {
+    codeContext +=
+      "\n\n--- Documentation excerpts (prose may be outdated; the code is the source of truth) ---\n\n" +
+      docChunks.map((c) => `${header(c)}\n${c.text}`).join("\n\n---\n\n");
+  }
 
   // Append organization knowledge if available
   if (orgId) {
@@ -68,13 +79,13 @@ export async function analyzeRepository(
   const response = await createAiMessage(
     {
       model: analyzeModel,
-      maxTokens: 4096,
+      maxTokens: 5120,
       system: getCoreIdentity(),
       cacheSystem: true,
       messages: [
         {
           role: "user",
-          content: `Analyze the repository "${fullName}" using the code snippets below. If organization guidelines are provided at the end, also check the codebase against those guidelines and note any deviations. Provide a thorough analysis with exactly these 6 sections (use ## headers):
+          content: `Analyze the repository "${fullName}" using the code snippets below. If organization guidelines are provided at the end, also check the codebase against those guidelines and note any deviations. Documentation excerpts describe intent at the time they were written. Verify claims against the code; never repeat a documentation claim as fact without code evidence. Provide a thorough analysis with exactly these 7 sections (use ## headers):
 
 ## Architecture Overview
 Describe the overall architecture, design patterns, and codebase structure. Trace key execution paths across files where relevant (e.g. \`Request → middleware/auth.ts → services/user.ts → repositories/user.ts\`). Note any non-obvious behaviors or implicit contracts.
@@ -93,6 +104,9 @@ Identify the most important modules, classes, or functions. For each, describe: 
 
 ## Dependencies & Risks
 Analyze external dependencies, potential risks, outdated patterns, and areas needing attention. Check for: race conditions, memory leaks (event listeners, unclosed connections), unhandled promise rejections, resource exhaustion risks (unbounded loops, missing pagination), and potential N+1 queries or inefficient data fetching.
+
+## Documentation Accuracy
+Compare documentation claims against the code. List claims the code contradicts or that appear outdated (cite the doc file and the contradicting code). Note which docs appear current and trustworthy. If no documentation was provided, say so in one line.
 
 Code snippets:
 ${codeContext}`,
