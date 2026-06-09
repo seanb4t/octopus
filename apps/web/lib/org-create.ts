@@ -3,7 +3,7 @@ import { toBaseSlug, randomSlugSuffix } from "@/lib/slug";
 import { canUserCreateOrg, hasEverOwnedOrg } from "@/lib/org-limits";
 import { assessWelcomeCredit, logWelcomeOutcome } from "@/lib/welcome-credit";
 import { addFreeCredits } from "@/lib/credits";
-import { MAX_OWNED_ORGS_PER_USER, WELCOME_FREE_CREDITS } from "@/lib/constants";
+import { MAX_OWNED_ORGS_PER_USER, WELCOME_FREE_CREDITS, orgLimitReached } from "@/lib/constants";
 
 /**
  * Sentinel stored in `Organization.welcomeRiskReason` when the welcome grant
@@ -63,7 +63,7 @@ export async function createOrgForUser(userId: string, userName: string) {
     const ownedCount = await tx.organizationMember.count({
       where: { userId, role: "owner", deletedAt: null, organization: { deletedAt: null } },
     });
-    if (ownedCount >= MAX_OWNED_ORGS_PER_USER) {
+    if (orgLimitReached(ownedCount)) {
       throw new Error(`Organization limit reached (max ${MAX_OWNED_ORGS_PER_USER}).`);
     }
 
