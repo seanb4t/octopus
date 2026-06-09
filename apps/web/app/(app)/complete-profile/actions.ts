@@ -6,7 +6,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@octopus/db";
 import { toBaseSlug, randomSlugSuffix } from "@/lib/slug";
 import { canUserCreateOrg } from "@/lib/org-limits";
-import { MAX_OWNED_ORGS_PER_USER } from "@/lib/constants";
+import { MAX_OWNED_ORGS_PER_USER, orgLimitReached } from "@/lib/constants";
 
 export async function completeProfile(
   _prevState: { error?: string },
@@ -77,7 +77,7 @@ export async function createOrgForUser(userId: string, userName: string) {
     const ownedCount = await tx.organizationMember.count({
       where: { userId, role: "owner", deletedAt: null, organization: { deletedAt: null } },
     });
-    if (ownedCount >= MAX_OWNED_ORGS_PER_USER) {
+    if (orgLimitReached(ownedCount)) {
       throw new Error(`Organization limit reached (max ${MAX_OWNED_ORGS_PER_USER}).`);
     }
 

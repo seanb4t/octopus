@@ -14,7 +14,7 @@ import { createAbortController, abortIndexing } from "@/lib/indexing-abort";
 import { runIndexingInBackground } from "@/lib/indexing-runner";
 import { toBaseSlug, randomSlugSuffix } from "@/lib/slug";
 import { canUserCreateOrg } from "@/lib/org-limits";
-import { MAX_OWNED_ORGS_PER_USER } from "@/lib/constants";
+import { MAX_OWNED_ORGS_PER_USER, orgLimitReached } from "@/lib/constants";
 import { encryptString } from "@/lib/crypto";
 
 export async function clearOrgCookie() {
@@ -98,7 +98,7 @@ export async function createOrganization(
       const ownedCount = await tx.organizationMember.count({
         where: { userId: user.id, role: "owner", deletedAt: null, organization: { deletedAt: null } },
       });
-      if (ownedCount >= MAX_OWNED_ORGS_PER_USER) {
+      if (orgLimitReached(ownedCount)) {
         throw new Error("ORG_LIMIT_REACHED");
       }
 
