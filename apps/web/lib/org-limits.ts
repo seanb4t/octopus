@@ -2,6 +2,8 @@ import { prisma } from "@octopus/db";
 import { MAX_OWNED_ORGS_PER_USER } from "@/lib/constants";
 
 export async function canUserCreateOrg(userId: string): Promise<boolean> {
+  // <= 0 disables the limit entirely (self-hosted / unlimited deployments).
+  if (MAX_OWNED_ORGS_PER_USER <= 0) return true;
   const count = await prisma.organizationMember.count({
     where: {
       userId,
