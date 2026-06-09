@@ -21,6 +21,7 @@ import { generateSparseVector } from "@/lib/sparse-vector";
 import { rerankDocuments } from "@/lib/reranker";
 import { resolveReviewLanguage } from "@/lib/review-language";
 import { getAlwaysIncludeKnowledge, mergeKnowledgeChunks } from "@/lib/knowledge-context";
+import { applyRecencyToContextChunks } from "@/lib/recency";
 import {
   fetchRepoConfigFile,
   extractRepoConfigRules,
@@ -1263,11 +1264,12 @@ export async function processReview(pullRequestId: string): Promise<void> {
 
     const knowledgeChunks = mergeKnowledgeChunks(alwaysIncludeKnowledge, similarityKnowledgeChunks);
 
-    const codebaseContext = contextChunks
-      .map(
-        (c) =>
-          `// ${c.filePath}:L${c.startLine}-L${c.endLine}\n${c.text}`,
-      )
+    const { chunks: recencyChunks, demoted } = applyRecencyToContextChunks(contextChunks);
+    if (demoted > 0) {
+      console.log(`[reviewer] Demoted ${demoted} stale documentation chunk(s) from review context`);
+    }
+    const codebaseContext = recencyChunks
+      .map((c) => `${c.contextHeader}\n${c.text}`)
       .join("\n\n---\n\n");
 
     const knowledgeContext = knowledgeChunks.length > 0

@@ -17,6 +17,7 @@ import { createEmbeddings } from "@/lib/embeddings";
 import { rerankDocuments } from "@/lib/reranker";
 import { resolveReviewLanguage } from "@/lib/review-language";
 import { getAlwaysIncludeKnowledge, mergeKnowledgeChunks } from "@/lib/knowledge-context";
+import { applyRecencyToContextChunks } from "@/lib/recency";
 import {
   type InlineFinding,
   parseFindings,
@@ -236,8 +237,12 @@ export async function generateLocalReview(params: LocalReviewParams): Promise<Lo
 
   const knowledgeChunks = mergeKnowledgeChunks(alwaysIncludeKnowledge, similarityKnowledgeChunks);
 
-  const codebaseContext = contextChunks
-    .map((c) => `// ${c.filePath}:L${c.startLine}-L${c.endLine}\n${c.text}`)
+  const { chunks: recencyChunks, demoted } = applyRecencyToContextChunks(contextChunks);
+  if (demoted > 0) {
+    console.log(`[review-core] Demoted ${demoted} stale documentation chunk(s) from review context`);
+  }
+  const codebaseContext = recencyChunks
+    .map((c) => `${c.contextHeader}\n${c.text}`)
     .join("\n\n---\n\n");
 
   const knowledgeContext = knowledgeChunks.length > 0

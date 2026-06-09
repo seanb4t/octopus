@@ -93,6 +93,7 @@ repository. This context is your ground truth.
 When processing this context:
 - Cross-reference multiple chunks to build a complete picture
 - Note when chunks seem outdated or contradictory
+- Treat prose documentation chunks (.md/.txt) as statements of intent at the time they were written; where documentation and code conflict, the code is authoritative
 - Consider the file path hierarchy to understand module boundaries
 - Use import/export statements to trace dependency chains
 - Pay attention to TODO/FIXME/HACK comments as indicators of known issues
