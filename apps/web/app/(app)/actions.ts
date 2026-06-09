@@ -18,7 +18,7 @@ import { runIndexingInBackground } from "@/lib/indexing-runner";
 import { toBaseSlug, randomSlugSuffix } from "@/lib/slug";
 import { canUserCreateOrg, hasEverOwnedOrg } from "@/lib/org-limits";
 import { assessWelcomeCredit, logWelcomeOutcome } from "@/lib/welcome-credit";
-import { MAX_OWNED_ORGS_PER_USER, WELCOME_FREE_CREDITS } from "@/lib/constants";
+import { MAX_OWNED_ORGS_PER_USER, WELCOME_FREE_CREDITS, orgLimitReached } from "@/lib/constants";
 import { encryptString } from "@/lib/crypto";
 import { validateProviderUrl } from "@/lib/providers/url-validation";
 import { asThinkingEffort } from "@/lib/providers/thinking";
@@ -112,7 +112,7 @@ export async function createOrganization(
       const ownedCount = await tx.organizationMember.count({
         where: { userId: user.id, role: "owner", deletedAt: null, organization: { deletedAt: null } },
       });
-      if (ownedCount >= MAX_OWNED_ORGS_PER_USER) {
+      if (orgLimitReached(ownedCount)) {
         throw new Error("ORG_LIMIT_REACHED");
       }
 

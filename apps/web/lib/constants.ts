@@ -6,3 +6,18 @@ export const DISCORD_INVITE_URL = "https://discord.gg/qyuWTXghbS";
 export const MAX_OWNED_ORGS_PER_USER = Number(process.env.MAX_OWNED_ORGS_PER_USER ?? 3);
 // Welcome credits granted once, on a user's first organization (USD).
 export const WELCOME_FREE_CREDITS = 150;
+
+/**
+ * Single source of truth for the owned-org limit rule: true when a user who
+ * already owns `ownedCount` organizations is at/over the cap. `max <= 0` means
+ * unlimited (the limit is never reached). Used by `canUserCreateOrg` AND by the
+ * atomic TOCTOU re-checks inside `createOrganization` / `createOrgForUser`, so
+ * the unlimited sentinel cannot drift between call sites (a direct
+ * `ownedCount >= max` comparison wrongly rejects everything when `max === 0`).
+ */
+export function orgLimitReached(
+  ownedCount: number,
+  max: number = MAX_OWNED_ORGS_PER_USER,
+): boolean {
+  return max > 0 && ownedCount >= max;
+}
