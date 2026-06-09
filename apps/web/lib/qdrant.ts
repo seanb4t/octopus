@@ -308,7 +308,7 @@ export async function searchSimilarChunks(
   queryVector: number[],
   limit = 20,
   queryText?: string,
-): Promise<{ filePath: string; text: string; startLine: number; endLine: number; score: number }[]> {
+): Promise<{ filePath: string; text: string; startLine: number; endLine: number; score: number; lastModifiedAt: string | null }[]> {
   if (queryVector.length === 0) return [];
   const qdrant = getQdrantClient();
   const { getActiveRepositoryCodeFilter } = await import("@/lib/repository-index-storage");
@@ -355,6 +355,7 @@ export async function searchSimilarChunks(
     startLine: (point.payload?.startLine as number) ?? 0,
     endLine: (point.payload?.endLine as number) ?? 0,
     score: point.score,
+    lastModifiedAt: (point.payload?.lastModifiedAt as string | null) ?? null,
   }));
 }
 

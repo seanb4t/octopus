@@ -71,6 +71,53 @@ export function formatAgeAnnotation(
   return ` (last modified ${date})`;
 }
 
+/** Stale docs survive demotion only above this rerank score. */
+export const STALE_DOC_KEEP_SCORE = 0.6;
+
+export type ReviewContextChunk = {
+  filePath: string;
+  text: string;
+  startLine: number;
+  endLine: number;
+  score: number;
+  lastModifiedAt: string | null;
+};
+
+/**
+ * Post-rerank, pre-prompt pass over review context chunks:
+ * - drops doc chunks stale vs the retrieved set's median code date, unless
+ *   their rerank score earned them a place (>= STALE_DOC_KEEP_SCORE);
+ * - attaches a contextHeader with path:lines, age, and a doc tag.
+ * Chunks without lastModifiedAt are never demoted ("age unknown").
+ */
+export function applyRecencyToContextChunks<T extends ReviewContextChunk>(
+  chunks: T[],
+): { chunks: (T & { contextHeader: string })[]; demoted: number } {
+  const median = medianCodeDate(
+    chunks.map((c) => ({
+      filePath: c.filePath,
+      kind: chunkKind(c.filePath),
+      lastModifiedAt: c.lastModifiedAt,
+    })),
+  );
+  const kept: (T & { contextHeader: string })[] = [];
+  let demoted = 0;
+  for (const c of chunks) {
+    const kind = chunkKind(c.filePath);
+    if (isStaleDoc(kind, c.lastModifiedAt, median) && c.score < STALE_DOC_KEEP_SCORE) {
+      demoted++;
+      continue;
+    }
+    const age = c.lastModifiedAt ? ` (last modified ${c.lastModifiedAt.slice(0, 10)})` : "";
+    const docTag = kind === "doc" ? " (documentation — verify against code)" : "";
+    kept.push({
+      ...c,
+      contextHeader: `// ${c.filePath}:L${c.startLine}-L${c.endLine}${age}${docTag}`,
+    });
+  }
+  return { chunks: kept, demoted };
+}
+
 /**
  * Structured selection over a repo's full chunk-payload set:
  * - root README* + root manifest chunks are always seeded;
