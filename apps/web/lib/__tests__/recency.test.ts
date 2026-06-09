@@ -130,3 +130,44 @@ describe("STALE_DOC_GAP_MS", () => {
     expect(STALE_DOC_GAP_MS).toBe(183 * 24 * 60 * 60 * 1000);
   });
 });
+
+import { applyRecencyToContextChunks, STALE_DOC_KEEP_SCORE, type ReviewContextChunk } from "@/lib/recency";
+
+describe("applyRecencyToContextChunks", () => {
+  const ctx = (filePath: string, lastModifiedAt: string | null, score: number): ReviewContextChunk => ({
+    filePath, text: "x", startLine: 1, endLine: 10, score, lastModifiedAt,
+  });
+  // median code date will be 2026-05-01 (single dated code file)
+  const codeChunk = ctx("src/app.ts", "2026-05-01T00:00:00Z", 0.9);
+
+  it("demotes stale low-score doc chunks", () => {
+    const staleDoc = ctx("docs/old-design.md", "2024-01-01T00:00:00Z", 0.4);
+    const { chunks, demoted } = applyRecencyToContextChunks([codeChunk, staleDoc]);
+    expect(demoted).toBe(1);
+    expect(chunks.map((c) => c.filePath)).toEqual(["src/app.ts"]);
+  });
+
+  it("keeps stale doc chunks with high rerank scores", () => {
+    const staleButRelevant = ctx("docs/old-design.md", "2024-01-01T00:00:00Z", STALE_DOC_KEEP_SCORE + 0.05);
+    const { chunks, demoted } = applyRecencyToContextChunks([codeChunk, staleButRelevant]);
+    expect(demoted).toBe(0);
+    expect(chunks.length).toBe(2);
+  });
+
+  it("never demotes undated chunks or code chunks", () => {
+    const undatedDoc = ctx("docs/notes.md", null, 0.3);
+    const oldCode = ctx("src/legacy.ts", "2020-01-01T00:00:00Z", 0.3);
+    const { chunks, demoted } = applyRecencyToContextChunks([codeChunk, undatedDoc, oldCode]);
+    expect(demoted).toBe(0);
+    expect(chunks.length).toBe(3);
+  });
+
+  it("builds headers with path:lines, age, and doc tag", () => {
+    const doc = ctx("docs/notes.md", "2026-04-01T00:00:00Z", 0.8);
+    const { chunks } = applyRecencyToContextChunks([codeChunk, doc]);
+    const docHeader = chunks.find((c) => c.filePath === "docs/notes.md")?.contextHeader;
+    expect(docHeader).toBe("// docs/notes.md:L1-L10 (last modified 2026-04-01) (documentation — verify against code)");
+    const codeHeader = chunks.find((c) => c.filePath === "src/app.ts")?.contextHeader;
+    expect(codeHeader).toBe("// src/app.ts:L1-L10 (last modified 2026-05-01)");
+  });
+});
