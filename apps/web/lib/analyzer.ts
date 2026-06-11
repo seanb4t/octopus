@@ -79,7 +79,11 @@ export async function analyzeRepository(
   const response = await createAiMessage(
     {
       model: analyzeModel,
-      maxTokens: 5120,
+      // 8192 (not 5120): the 7-section analysis (## Documentation Accuracy is
+      // emitted last) exceeds ~5120 tokens on large repos, truncating the final
+      // section mid-stream so it never renders. 8192 matches the codebase's
+      // other long-output calls and leaves headroom for all 7 sections.
+      maxTokens: 8192,
       system: getCoreIdentity(),
       cacheSystem: true,
       messages: [
