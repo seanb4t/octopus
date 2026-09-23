@@ -110,10 +110,19 @@ export async function collectFileRecency(
           : {}),
       },
     });
+    // --no-renames keeps the diff to trees, which the blob-less clone holds. Rename
+    // detection compares file contents, so git would fetch blobs from the remote
+    // without the auth header and fail. GIT_NO_LAZY_FETCH makes any other blob
+    // access fail fast instead of reaching the network.
     const { stdout } = await execFileAsync(
       "git",
-      ["-C", scanDir, "log", "--format=COMMIT:%cI", "--name-status"],
-      { timeout: RECENCY_LOG_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, signal: controller.signal },
+      ["-C", scanDir, "log", "--no-renames", "--format=COMMIT:%cI", "--name-status"],
+      {
+        timeout: RECENCY_LOG_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+        signal: controller.signal,
+        env: { ...process.env, GIT_NO_LAZY_FETCH: "1" },
+      },
     );
     const map = parseGitLogNameStatus(stdout);
     onLog(`File-recency scan dated ${map.size} paths`, "success");
