@@ -3,6 +3,7 @@ import type { RepositoryIndexOwner } from "@/lib/repository-index-storage";
 import { createHash } from "crypto";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { generateSparseVector } from "@/lib/sparse-vector";
+import { selectFromPayloads, chunkKind, type AnalysisChunk } from "@/lib/recency";
 import { getEmbedConfig } from "@/lib/embed-config";
 
 // Qdrant point IDs must be uint or UUID. Existing UUID inputs pass through
@@ -227,24 +228,44 @@ export async function deleteRepoFileChunks(owner: RepositoryIndexOwner, filePath
   });
 }
 
-export async function getRepoChunks(
+/**
+ * Structured chunk selection for repo analysis/summarization. Scrolls ALL
+ * payloads for the repo (paginated, vectors excluded — cheap even at 10k+
+ * chunks) and applies doc-cap / path-diversity / recency selection.
+ */
+export async function selectAnalysisChunks(
   repoId: string,
-  limit = 50,
-): Promise<string[]> {
+  limit: number,
+): Promise<{ chunks: AnalysisChunk[]; medianCode: string | null }> {
   const { getActiveRepositoryCodeFilter } = await import("@/lib/repository-index-storage");
   const filter = await getActiveRepositoryCodeFilter([repoId]);
-  if (!filter) return [];
+  if (!filter) return { chunks: [], medianCode: null };
   const qdrant = getQdrantClient();
-  const result = await qdrant.scroll(COLLECTION_NAME, {
-    filter,
-    limit,
-    with_payload: true,
-    with_vector: false,
-  });
+  const all: AnalysisChunk[] = [];
+  let offset: string | number | undefined = undefined;
+  do {
+    const result = await qdrant.scroll(COLLECTION_NAME, {
+      filter,
+      limit: 256,
+      offset,
+      with_payload: true,
+      with_vector: false,
+    });
+    for (const p of result.points) {
+      const text = (p.payload?.text as string) ?? "";
+      if (!text) continue;
+      const filePath = (p.payload?.filePath as string) ?? "";
+      all.push({
+        text,
+        filePath,
+        kind: chunkKind(filePath),
+        lastModifiedAt: (p.payload?.lastModifiedAt as string | null) ?? null,
+      });
+    }
+    offset = (result.next_page_offset ?? undefined) as string | number | undefined;
+  } while (offset !== undefined);
 
-  return result.points
-    .map((p) => (p.payload?.text as string) ?? "")
-    .filter(Boolean);
+  return selectFromPayloads(all, limit);
 }
 
 export async function searchSimilarChunks(
