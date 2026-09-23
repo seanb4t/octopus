@@ -124,6 +124,29 @@ describe("collectFileRecency", () => {
     await rmDir(repoDir, { recursive: true, force: true });
   });
 
+  it("dates a renamed file without fetching blobs from the partial clone", async () => {
+    const git = (args: string[], date: string) =>
+      run("git", ["-C", repoDir, ...args], {
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t",
+          GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t",
+          GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date,
+        },
+      });
+    // An edited rename: git can only pair the old and new paths by comparing
+    // contents, which the blob-less clone does not hold. An exact rename would
+    // match on blob ids alone and would not exercise the fetch.
+    await git(["mv", "main.ts", "app.ts"], "2026-07-01T00:00:00Z");
+    await writeFile(join(repoDir, "app.ts"), "new code\nplus one line\n");
+    await git(["add", "."], "2026-07-01T00:00:00Z");
+    await git(["commit", "-m", "rename and edit"], "2026-07-01T00:00:00Z");
+    const map = await collectFileRecency(`file://${repoDir}`, undefined, "main", () => {});
+    expect(map.get("app.ts")?.startsWith("2026-07-01")).toBe(true);
+    expect(map.get("docs/design.md")?.startsWith("2024-01-01")).toBe(true);
+    await rmDir(repoDir, { recursive: true, force: true });
+  });
+
   it("returns an empty map on clone failure instead of throwing", async () => {
     const map = await collectFileRecency("file:///nonexistent-repo", undefined, "main", () => {});
     expect(map.size).toBe(0);
