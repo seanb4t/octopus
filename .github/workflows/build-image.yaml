@@ -7,7 +7,7 @@ name: build-image
 
 on:
   push:
-    branches: [upgrade/v1.2.5-infra]
+    branches: [upgrade/v1.2.5-infra, upgrade/v1.2.5-analysis]
     tags: ["v*"]
   workflow_dispatch:
 
