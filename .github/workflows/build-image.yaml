@@ -7,7 +7,7 @@ name: build-image
 
 on:
   push:
-    branches: [feat/configurable-embedding-dim, master]
+    branches: [upgrade/v1.2.6-infra]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -27,6 +27,8 @@ env:
   # affects the UI "Install" deep-link; set to the intended app name and rebuild
   # if the registered slug differs (bead hl-0we.7).
   GITHUB_APP_SLUG: octopus-fzymgc
+  # Upstream release this branch is built on.
+  APP_VERSION: 1.2.6
 
 jobs:
   build:
@@ -55,6 +57,10 @@ jobs:
           build-args: |
             NEXT_PUBLIC_GITHUB_APP_SLUG=${{ env.GITHUB_APP_SLUG }}
             NEXT_PUBLIC_BUILD_ID=${{ github.sha }}
+            NEXT_PUBLIC_APP_VERSION=${{ env.APP_VERSION }}
+            # Self-host distribution, as upstream release.yml builds it: no
+            # billing path (lib/entitlements.ts), plus the Updates page.
+            NEXT_PUBLIC_OCTOPUS_SELF_HOSTED=true
           tags: |
             ${{ env.WEB_IMAGE }}:latest
             ${{ env.WEB_IMAGE }}:${{ github.sha }}
