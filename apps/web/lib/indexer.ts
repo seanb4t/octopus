@@ -47,6 +47,92 @@ export interface IndexStats {
   resolvedDefaultBranch?: string;
 }
 
+// Parses `git log --format=COMMIT:%cI --name-status` output into a map of
+// path -> last-commit ISO date. The log is newest-first, so the first
+// occurrence of a path wins. Rename/copy lines (R<score>/C<score>\told\tnew)
+// record the NEW path — the old one no longer exists in the tree.
+export function parseGitLogNameStatus(log: string): Map<string, string> {
+  const map = new Map<string, string>();
+  let currentDate: string | null = null;
+  for (const line of log.split("\n")) {
+    if (line.startsWith("COMMIT:")) {
+      currentDate = line.slice("COMMIT:".length).trim();
+      continue;
+    }
+    if (!line || !currentDate) continue;
+    const parts = line.split("\t");
+    if (parts.length < 2) continue;
+    const status = parts[0];
+    const path = status.startsWith("R") || status.startsWith("C") ? parts[2] : parts[1];
+    if (!path) continue;
+    if (!map.has(path)) map.set(path, currentDate);
+  }
+  return map;
+}
+
+const RECENCY_CLONE_TIMEOUT_MS = 120_000;
+const RECENCY_LOG_TIMEOUT_MS = 60_000;
+
+/**
+ * Builds a path -> last-commit-ISO-date map via a bare, blob-less clone
+ * (commits + trees only; cost scales with history size, not repo size).
+ * Returns an EMPTY map on any failure — the index run must never fail or
+ * block because of the recency scan. Paths absent from the map mean
+ * "age unknown"; the payload step writes lastModifiedAt: null for them.
+ */
+export async function collectFileRecency(
+  cloneUrl: string,
+  authHeader: string | undefined,
+  branch: string,
+  onLog: OnLog,
+  signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  const scanDir = join(tmpdir(), `octopus-recency-${Date.now()}`);
+  const args = ["clone", "--bare", "--filter=blob:none", "--single-branch", "--branch", branch];
+  const window = process.env.INDEX_FILE_RECENCY_WINDOW;
+  if (window) args.push(`--shallow-since=${window}`);
+  args.push(cloneUrl, scanDir);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    await execFileAsync("git", args, {
+      timeout: RECENCY_CLONE_TIMEOUT_MS,
+      signal: controller.signal,
+      env: {
+        ...process.env,
+        ...(authHeader
+          ? {
+              GIT_CONFIG_COUNT: "1",
+              GIT_CONFIG_KEY_0: "http.extraHeader",
+              GIT_CONFIG_VALUE_0: `Authorization: ${authHeader}`,
+            }
+          : {}),
+      },
+    });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", scanDir, "log", "--format=COMMIT:%cI", "--name-status"],
+      { timeout: RECENCY_LOG_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024, signal: controller.signal },
+    );
+    const map = parseGitLogNameStatus(stdout);
+    onLog(`File-recency scan dated ${map.size} paths`, "success");
+    return map;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[indexer] File-recency scan failed (continuing without): ${msg}`);
+    onLog("File-recency scan failed — indexing continues without file dates", "warning");
+    return new Map();
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    try {
+      await rm(scanDir, { recursive: true, force: true });
+    } catch {
+      console.warn(`[indexer] Failed to clean up recency scan dir: ${scanDir}`);
+    }
+  }
+}
+
 export async function indexRepository(
   repoId: string,
   fullName: string,
@@ -75,6 +161,7 @@ export async function indexRepository(
   let contributors: Contributor[] = [];
   let resolvedDefaultBranch: string | undefined;
   let emptyRepository = false;
+  let recencyMap: Map<string, string> | null = null;
 
   if (provider === "forgejo") {
     if (!organizationId) throw new Error("Forgejo indexing requires an organization");
@@ -180,6 +267,9 @@ export async function indexRepository(
         throw err;
       }
       onLog("Repository cloned successfully", "success");
+      if (process.env.INDEX_FILE_RECENCY === "true") {
+        recencyMap = await collectFileRecency(cloneUrl, gitAuthHeader, defaultBranch, onLog, signal);
+      }
 
       // 2. Walk the cloned directory to get all file paths
       onLog(`Scanning repository files...`);
@@ -399,6 +489,17 @@ export async function indexRepository(
       onLog("Could not fetch contributor count", "warning");
     }
 
+    if (process.env.INDEX_FILE_RECENCY === "true") {
+      const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
+      recencyMap = await collectFileRecency(
+        `https://github.com/${fullName}.git`,
+        `Basic ${basicAuth}`,
+        activeBranch,
+        onLog,
+        signal,
+      );
+    }
+
     // 2. Fetch file contents and chunk
     onLog("Fetching and chunking file contents...");
     const CONCURRENCY = 10;
@@ -572,6 +673,7 @@ export async function indexRepository(
       text: chunk.text,
       language: chunk.filePath.split(".").pop() ?? "unknown",
       indexedAt,
+      lastModifiedAt: recencyMap?.get(chunk.filePath) ?? null,
     },
   }));
 
@@ -630,6 +732,12 @@ export async function incrementalIndex(
   changedFiles: { filename: string; status: string }[],
   provider: string = "github",
   organizationId?: string,
+  /**
+   * ISO date of the push/merge head commit. Stamped as lastModifiedAt on the
+   * re-indexed chunks. null when unknown — never fabricate with now(), which
+   * would fake freshness.
+   */
+  headCommitDate?: string,
 ): Promise<{ updatedFiles: number; removedFiles: number; newVectors: number }> {
   const removed = changedFiles
     .filter((f) => f.status === "removed")
@@ -741,6 +849,7 @@ export async function incrementalIndex(
       text: chunk.text,
       language: chunk.filePath.split(".").pop() ?? "unknown",
       indexedAt,
+      lastModifiedAt: headCommitDate ?? null,
     },
   }));
 
