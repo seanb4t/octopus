@@ -371,6 +371,7 @@ export async function POST(request: NextRequest) {
               files,
               "github",
               repo.organizationId,
+              (payload.pull_request?.merged_at as string | undefined) ?? undefined,
             );
             await prisma.repository.updateMany({
               where: { id: repo.id, indexStatus: "indexed", activeIndexGeneration: repo.activeIndexGeneration, indexedAt: { not: null } },
