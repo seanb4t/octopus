@@ -1,5 +1,6 @@
 import "server-only";
 import { isPostgresSafeJson, readBoundedJson } from "@/lib/bounded-json";
+import { utilityModel } from "@/lib/utility-model";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@octopus/db";
 import { createEmbeddings } from "@/lib/embeddings";
@@ -249,7 +250,7 @@ export async function POST(request: Request) {
 
     // Stream the response
     const aiStream = await client.messages.stream({
-      model: "claude-haiku-4-5-20251001",
+      model: utilityModel("claude-haiku-4-5-20251001"),
       // ~400 words ≈ 600 tokens; cap close to that as a hard ceiling so the
       // model can't blow past the system-prompt length rule. The stop_reason
       // path below appends a truncation note if we ever hit it.

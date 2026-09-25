@@ -11,12 +11,13 @@
  * self-protecting: it never emits a model that has no pricing (which would bill
  * $0), falling back to the default instead.
  */
+import { utilityModel } from "@/lib/utility-model";
 import type { ReviewCoverage } from "@/lib/review-coverage";
 import { getModelPricing } from "@/lib/cost";
 import { resolveReviewModelPin } from "@/lib/ai-client";
 
 /** Cheaper model for provably-mechanical diffs. Must exist in pricing (asserted in tests). */
-export const MECHANICAL_MODEL = "claude-haiku-4-5-20251001";
+export const MECHANICAL_MODEL = utilityModel("claude-haiku-4-5-20251001");
 
 export type DiffTier = "mechanical" | "standard" | "complex";
 
