@@ -1,3 +1,4 @@
+import { utilityModel } from "@/lib/utility-model";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@octopus/db";
 import { createEmbeddings } from "@/lib/embeddings";
@@ -230,7 +231,7 @@ ${chatHistoryContext || "No relevant previous conversations found."}
     // 6. Call Claude (non-streaming)
     const client = getAnthropicClient();
     const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: utilityModel("claude-sonnet-4-20250514"),
       max_tokens: 2048,
       system: systemPrompt,
       messages: [{ role: "user", content: question }],
@@ -241,7 +242,7 @@ ${chatHistoryContext || "No relevant previous conversations found."}
     // 9. Log AI usage
     await logAiUsage({
       provider: "anthropic",
-      model: "claude-sonnet-4-20250514",
+      model: utilityModel("claude-sonnet-4-20250514"),
       operation: "slack-command",
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,

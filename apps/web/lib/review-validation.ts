@@ -3,6 +3,7 @@
  * reviewer.ts (PR reviews) and review-core.ts (local reviews).
  */
 
+import { utilityModel } from "@/lib/utility-model";
 import { searchSimilarChunks } from "@/lib/qdrant";
 import { createEmbeddings } from "@/lib/embeddings";
 import { logAiUsage } from "@/lib/ai-usage";
@@ -221,7 +222,7 @@ export async function gatherVerificationContext(
 
 // ─── Two-Pass Validation ────────────────────────────────────────────────────
 
-export const VALIDATION_MODEL = "claude-sonnet-5";
+export const VALIDATION_MODEL = utilityModel("claude-sonnet-5");
 
 export async function validateFindings(
   findings: InlineFinding[],

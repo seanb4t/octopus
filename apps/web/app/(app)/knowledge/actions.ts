@@ -1,5 +1,6 @@
 "use server";
 
+import { utilityModel } from "@/lib/utility-model";
 import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -518,7 +519,7 @@ export async function enhanceKnowledgeContent(
 
   if (!rawContent?.trim()) return { error: "Content is required." };
 
-  const model = "claude-haiku-4-5-20251001";
+  const model = utilityModel("claude-haiku-4-5-20251001");
 
   try {
     const org = await prisma.organization.findUnique({
