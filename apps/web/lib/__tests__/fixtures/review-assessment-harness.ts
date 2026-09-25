@@ -548,6 +548,17 @@ for (const [name, text] of [
   assert.equal(response.text, valid, `${name}: callers get the canonical text`);
   assert.equal(validReviewResponse(text), true, name);
 }
+// A Score table with the five category rows and no Overall row gets one, at the lowest category score.
+{
+  const p = plan();
+  const text = valid.replace(/^\| \*\*Overall\*\*[^\n]*\n/m, "");
+  assert.ok(!/Overall/.test(text));
+  output = { choices: [{ message: { content: text }, finish_reason: "stop" }] };
+  const response = await executeCoveredReview(requestFor(p), p.coverage, "v1", request => openaiProvider.create(request, "fake"));
+  assert.equal(p.coverage.assessment?.state, "completed", "derived-overall");
+  assert.ok(response.text.includes("| Consistency | 5/5 | Consistent |\n| **Overall** | **4/5** | Lowest category score |"), "derived-overall row");
+  assert.equal(reviewResponseValidationError(text.replace(/\| [1-5]\/5 \|/g, "| N/A |")), "Overall score missing, duplicated or malformed", "all N/A stays rejected");
+}
 // The word Overall in a notes cell is not a second Overall row.
 {
   const p = plan();
