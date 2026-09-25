@@ -1,3 +1,4 @@
+import { utilityModel } from "@/lib/utility-model";
 import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@octopus/db";
@@ -16,7 +17,7 @@ import { logAiUsage } from "./ai-usage";
  *    dollar budget for chat operations. CHAT_FREE_DAILY_CAP_USD (default 2).
  */
 
-const GUARD_MODEL = "claude-haiku-4-5-20251001";
+const GUARD_MODEL = utilityModel("claude-haiku-4-5-20251001");
 // Enough for the classifier to judge intent; keeps giant injected prompts
 // (roleplay system prompts run to tens of KB) from inflating guard cost.
 const GUARD_INPUT_CHARS = 2000;
