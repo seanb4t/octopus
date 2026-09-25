@@ -150,7 +150,7 @@ function scoreStructure(text: string) {
  * two cells are not both bold, and horizontal spacing around score slashes.
  */
 export function normalizeReviewResponse(text: string): string {
-  return text
+  return ensureOverallRow(text
     .replace(/(^### Score[ \t]*\r?\n)([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/gm, (_section, heading: string, body: string) => heading + body.split("\n").map(line => {
       const cells = scoreCells(line);
       if (cells.length !== 5 || !SCORE_CATEGORIES.some(category => cells[1].trim().replaceAll("**", "") === category)) return line;
@@ -158,7 +158,29 @@ export function normalizeReviewResponse(text: string): string {
       return cells.join("|");
     }).join("\n"))
     .replace(/^## 🐙 Octopus Review\b[^\n]*$/gm, REVIEW_HEADING)
-    .replace(/^\|\s*(?:\*\*)?Overall(?:\*\*)?\s*\|\s*(?:\*\*)?([1-5]\/5|N\/A|Not assessed)(?:\*\*)?\s*\|([^\n]*)$/gm, "| **Overall** | **$1** |$2");
+    .replace(/^\|\s*(?:\*\*)?Overall(?:\*\*)?\s*\|\s*(?:\*\*)?([1-5]\/5|N\/A|Not assessed)(?:\*\*)?\s*\|([^\n]*)$/gm, "| **Overall** | **$1** |$2"));
+}
+
+const CATEGORY_ROWS: readonly string[] = SCORE_CATEGORIES.filter(category => category !== "Overall");
+
+/**
+ * The template defines Overall as the lowest category score, so a Score table
+ * with all five category rows and no Overall row is missing a derivable value,
+ * not an assessment. Add the row. A table with no numeric score is left alone,
+ * and incomplete input still needs the literal Not assessed row.
+ */
+function ensureOverallRow(text: string): string {
+  const match = /^### Score[ \t]*\r?\n([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/m.exec(text);
+  if (!match) return text;
+  const lines = match[1].split("\n");
+  const cell = (line: string, index: number) => scoreCells(line)[index]?.trim().replaceAll("**", "") ?? "";
+  if (lines.some(line => cell(line, 1) === "Overall")) return text;
+  const rows = lines.map((line, index) => ({ line, index })).filter(row => CATEGORY_ROWS.includes(cell(row.line, 1)));
+  const scores = rows.map(row => cell(row.line, 2)).filter(score => /^[1-5]\/5$/.test(score)).map(score => Number(score[0]));
+  if (rows.length !== CATEGORY_ROWS.length || scores.length === 0) return text;
+  lines.splice(rows[rows.length - 1].index + 1, 0, `| **Overall** | **${Math.min(...scores)}/5** | Lowest category score |`);
+  const start = match.index + match[0].length - match[1].length;
+  return text.slice(0, start) + lines.join("\n") + text.slice(start + match[1].length);
 }
 
 /** Fixed diagnostic messages only: never include untrusted response excerpts. */
