@@ -144,7 +144,9 @@ export function reviewResponseValidationError(text: string, inputComplete = true
     if (rows.length !== 1 || rows[0].split("|").length !== 5
       || !(inputComplete ? /^(?:[1-5]\/5|N\/A)$/ : /^N\/A$/).test(rows[0].split("|")[2].trim().replaceAll("**", ""))) return "Score category rows missing, duplicated or malformed";
   }
-  const overall = score.split("\n").filter(line => /Overall/i.test(line));
+  // Only a row whose first cell is Overall counts: a notes cell that contains the
+  // word ("consistent overall") is not a second Overall row.
+  const overall = score.split("\n").filter(line => line.split("|")[1]?.trim().replaceAll("**", "") === "Overall");
   const overallRow = inputComplete
     ? /^\|\s*\*\*Overall\*\*\s*\|\s*\*\*[1-5]\/5\*\*\s*\|[^|]+\|\s*$/
     : /^\|\s*\*\*Overall\*\*\s*\|\s*\*\*Not assessed\*\*\s*\|[^|]+\|\s*$/;
@@ -254,7 +256,10 @@ export async function executeCoveredReview(
   assessment.completion = response.completion ?? null;
   const validationError = reviewResponseValidationError(response.text, coverage.complete);
   assessment.responseValidation = { state: validationError === null ? "valid" : "invalid", reason: validationError };
-  if (validationError !== null) console.log(`[review-assessment] Response rejected: ${validationError}; completion=${response.completion?.reason ?? "unknown"}; head=${JSON.stringify(response.text.slice(0, 600))}`);
+  if (validationError !== null) {
+    const score = /^### Score[ \t]*\r?\n([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/m.exec(response.text)?.[1] ?? "";
+    console.log(`[review-assessment] Response rejected: ${validationError}; completion=${response.completion?.reason ?? "unknown"}; head=${JSON.stringify(response.text.slice(0, 400))}; score=${JSON.stringify(score.slice(0, 1200))}`);
+  }
   const observed = assessment.requests.length === 1 && assessment.requests[0].model === response.model
     && assessment.requests[0].provider === response.provider && assessment.requests[0].inputPreserved;
   const failures = [
