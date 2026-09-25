@@ -1,4 +1,5 @@
 import "server-only";
+import { utilityModel } from "@/lib/utility-model";
 import { headers } from "next/headers";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
@@ -844,7 +845,7 @@ ${agentResult ? `<local_agent_context>\nREAL-TIME results from a local agent run
         if (isFirstMessage && fullResponse) {
           try {
             const titleResponse = await getAnthropicClient().messages.create({
-              model: "claude-haiku-4-5-20251001",
+              model: utilityModel("claude-haiku-4-5-20251001"),
               max_tokens: 50,
               messages: [
                 {
@@ -859,7 +860,7 @@ ${agentResult ? `<local_agent_context>\nREAL-TIME results from a local agent run
                 : "New Chat";
             await logAiUsage({
               provider: "anthropic",
-              model: "claude-haiku-4-5-20251001",
+              model: utilityModel("claude-haiku-4-5-20251001"),
               operation: "chat-title",
               inputTokens: titleResponse.usage.input_tokens,
               outputTokens: titleResponse.usage.output_tokens,
@@ -1087,7 +1088,7 @@ async function streamAgentAnswer(opts: {
           try {
             const client = getAnthropicClient();
             const titleResponse = await client.messages.create({
-              model: "claude-haiku-4-5-20251001",
+              model: utilityModel("claude-haiku-4-5-20251001"),
               max_tokens: 50,
               messages: [
                 {
@@ -1102,7 +1103,7 @@ async function streamAgentAnswer(opts: {
                 : "New Chat";
             await logAiUsage({
               provider: "anthropic",
-              model: "claude-haiku-4-5-20251001",
+              model: utilityModel("claude-haiku-4-5-20251001"),
               operation: "chat-title",
               inputTokens: titleResponse.usage.input_tokens,
               outputTokens: titleResponse.usage.output_tokens,

@@ -1,3 +1,4 @@
+import { utilityModel } from "@/lib/utility-model";
 import "server-only";
 import crypto from "node:crypto";
 import { prisma, type Prisma } from "@octopus/db";
@@ -176,7 +177,7 @@ async function emitReviewStatus(orgId: string, event: ReviewEvent) {
 
 // --- LLM-based reply intent classification ---
 
-const FEEDBACK_CLASSIFICATION_MODEL = "claude-sonnet-5";
+const FEEDBACK_CLASSIFICATION_MODEL = utilityModel("claude-sonnet-5");
 
 // GitLab commit-status context name — the merge-gating check GitLab MRs can
 // require. Kept as one constant so every finalize path uses the same name

@@ -1,3 +1,4 @@
+import { utilityModel } from "@/lib/utility-model";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@octopus/db";
 import { revalidatePath } from "next/cache";
@@ -251,7 +252,7 @@ export async function POST(request: NextRequest) {
       try {
         const client = new Anthropic();
         const response = await client.messages.create({
-          model: "claude-sonnet-5",
+          model: utilityModel("claude-sonnet-5"),
           max_tokens: 300,
           thinking: { type: "disabled" },
           messages: [
