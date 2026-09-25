@@ -1,3 +1,4 @@
+import { utilityModel } from "@/lib/utility-model";
 import { authenticateApiToken } from "@/lib/api-auth";
 import { prisma } from "@octopus/db";
 import { createEmbeddings } from "@/lib/embeddings";
@@ -251,7 +252,7 @@ export async function POST(request: Request) {
         if (conversation.messages.length === 0 && fullResponse) {
           try {
             const titleResponse = await getAnthropicClient().messages.create({
-              model: "claude-haiku-4-5-20251001",
+              model: utilityModel("claude-haiku-4-5-20251001"),
               max_tokens: 50,
               messages: [
                 {
@@ -265,7 +266,7 @@ export async function POST(request: Request) {
               : "CLI Chat";
             await logAiUsage({
               provider: "anthropic",
-              model: "claude-haiku-4-5-20251001",
+              model: utilityModel("claude-haiku-4-5-20251001"),
               operation: "chat-title",
               inputTokens: titleResponse.usage.input_tokens,
               outputTokens: titleResponse.usage.output_tokens,

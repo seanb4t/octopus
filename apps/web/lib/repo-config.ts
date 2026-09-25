@@ -1,3 +1,4 @@
+import { utilityModel } from "@/lib/utility-model";
 import "server-only";
 import crypto from "node:crypto";
 import { prisma } from "@octopus/db";
@@ -22,7 +23,7 @@ export {
 };
 export type { RepoConfigExtracted };
 
-const EXTRACTOR_MODEL = "claude-haiku-4-5-20251001";
+const EXTRACTOR_MODEL = utilityModel("claude-haiku-4-5-20251001");
 const EXTRACTOR_MAX_TOKENS = 1_000;
 
 export type RepoConfigSource = {
