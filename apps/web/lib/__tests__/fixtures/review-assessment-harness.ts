@@ -174,8 +174,8 @@ for (const [name, text, validationReason] of [
   ["mismatched-findings", unassessedWithFinding.replace(JSON.stringify([finding]), "[]"), "Findings Summary counts do not match findings JSON"],
 ] as const) {
   assert.equal(reviewResponseValidationError(text, false), validationReason, name);
-  // Every category is N/A here, so complete input accepts a numeric, missing or N/A Overall.
-  assert.equal(validReviewResponse(text), ["numeric-overall", "missing-overall", "ambiguous-overall"].includes(name), `${name}: complete input needs a numeric Overall, or N/A when no category applies`);
+  // With complete input, Not assessed means N/A, so only a duplicate Overall or bad findings fail.
+  assert.equal(validReviewResponse(text), !["duplicate-overall", "malformed-findings", "missing-findings", "mismatched-findings"].includes(name), `${name}: complete input derives Overall from the categories`);
   for (const finish of ["stop", "length", null] as const) {
     const p = plan(false, 0);
     assert.equal(p.coverage.complete, false);
@@ -250,7 +250,7 @@ for (const [name, text, finish, complete] of [
   ["score-note-escaped-code", valid.replace("No security finding", "Validated `1\\|3` choices").replace("Lowest category", "Validated `1\\|3` choices"), "stop", true],
   ["score-note-unescaped-code", valid.replace("No security finding", "Validated `1|3` choices"), "stop", false],
   ["valid", valid, "stop", true],
-  ["unassessed-complete-input", unassessed, "stop", false],
+  ["unassessed-complete-input", unassessed, "stop", true],
   ["rereview-valid", valid, "stop", true],
   ["critical-empty-diagram", withFinding.replace("### Findings\n", "### Diagram\n\n").replace("**4/5**", "**3/5**"), "stop", true],
   ["critical-fence-description", withFinding.replace(JSON.stringify([finding]), JSON.stringify([{ ...finding, description: "Broken ```### Checklist and ```mermaid\nsequenceDiagram\nactivate missing\n``` inside the finding" }])), "stop", true],
@@ -297,7 +297,7 @@ for (const [name, text, finish, complete] of [
   const oversized = name.startsWith("oversized-");
   const p = plan(oversized);
   output = { choices: [{ message: { content: text }, finish_reason: finish }] };
-  await executeCoveredReview(requestFor(p), p.coverage, "template-v1", request => openaiProvider.create(request, "fake"));
+  const response = await executeCoveredReview(requestFor(p), p.coverage, "template-v1", request => openaiProvider.create(request, "fake"));
   assert.equal(p.coverage.complete, true, `${name}: input completeness is independent`);
   assert.equal(reviewAssessmentComplete(p.coverage), complete, name);
   const expectedReasons: Record<string, string> = {
@@ -313,12 +313,12 @@ for (const [name, text, finish, complete] of [
   assert.equal(validReviewResponse(text), p.coverage.assessment?.reason === "Provider completed a valid review response" || p.coverage.assessment?.reason === "Provider completion incomplete or unknown", `${name}: Boolean validation contract`);
   assert.equal(p.coverage.assessment?.responseSha256, sha256(text));
   assert.equal(p.coverage.assessment?.requests[0].sha256, createHash("sha256").update(JSON.stringify(received)).digest("hex"));
-  const prepared = prepareReviewPresentation(text, p.coverage);
+  const prepared = prepareReviewPresentation(response.text, p.coverage);
   const findings = parseFindingsFromJson(prepared) ?? [];
   assert.deepEqual(findings, parseFindingsFromJson(text) ?? [], name);
   const flags = { hasCritical: findings.some(f => f.severity === "🔴"), hasHigh: findings.some(f => f.severity === "🟠"), hasMedium: findings.some(f => f.severity === "🟡") };
   const covered = applyReviewCoverage(prepared, p.coverage, name);
-  const { report, comment } = finalizeReviewPresentation(text, covered, stripDetailedFindings(covered), p.coverage, name, flags);
+  const { report, comment } = finalizeReviewPresentation(response.text, covered, stripDetailedFindings(covered), p.coverage, name, flags);
   await saveReviewAttempt(name, "pr", p.coverage, report);
   assert.equal((current.reviewCoverage as typeof p.coverage).complete, true);
   assert.equal(reviewAssessmentComplete(current.reviewCoverage as typeof p.coverage), complete);
@@ -368,7 +368,8 @@ for (const [name, text, finish, complete] of [
   } else {
     assert.equal((published!.body.match(/^## 🐙 Octopus Review$/gm) ?? []).length, 1);
     assert.equal((published!.body.match(/^### Score$/gm) ?? []).length, 1);
-    assert.ok(published!.body.includes(`| **Overall** | **${name === "critical-empty-diagram" ? 3 : 4}/5**`), name);
+    const overall = name === "critical-empty-diagram" ? "3/5" : name === "unassessed-complete-input" ? "N/A" : "4/5";
+    assert.ok(published!.body.includes(`| **Overall** | **${overall}**`), name);
     assert.equal((report.match(/Last reviewed commit: a{40}/g) ?? []).length, 1);
   }
   if (process.env.REVIEW_TEST_EVIDENCE_DIR) {
@@ -618,6 +619,17 @@ for (const [name, text] of [
   assert.equal(p.coverage.assessment?.state, "completed", "all-na-overall");
   assert.ok(response.text.includes("| **Overall** | **N/A** | Documentation-only change |"), "all-na-overall row");
   assert.equal(reviewResponseValidationError(text, false), "Incomplete-input Overall must be exactly Not assessed, with no duplicate row", "incomplete input still needs Not assessed");
+}
+// With complete input, a Not assessed Overall is N/A: lowest category score, or N/A when no category applies.
+{
+  const p = plan();
+  output = { choices: [{ message: { content: unassessed }, finish_reason: "stop" }] };
+  const response = await executeCoveredReview(requestFor(p), p.coverage, "v1", request => openaiProvider.create(request, "fake"));
+  assert.equal(p.coverage.assessment?.state, "completed", "complete-not-assessed");
+  assert.ok(response.text.includes("| **Overall** | **N/A** | Input coverage is incomplete |"), "complete-not-assessed row");
+  const scored = valid.replace("**4/5** | Lowest category", "**Not assessed** | Excluded files");
+  assert.ok(normalizeReviewResponse(scored).includes("| **Overall** | **4/5** | Excluded files |"), "complete-not-assessed numeric row");
+  assert.equal(normalizeReviewResponse(scored, false), scored, "incomplete input keeps Not assessed");
 }
 // The word Overall in a notes cell is not a second Overall row.
 {
