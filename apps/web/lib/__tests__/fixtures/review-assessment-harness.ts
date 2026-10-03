@@ -174,7 +174,8 @@ for (const [name, text, validationReason] of [
   ["mismatched-findings", unassessedWithFinding.replace(JSON.stringify([finding]), "[]"), "Findings Summary counts do not match findings JSON"],
 ] as const) {
   assert.equal(reviewResponseValidationError(text, false), validationReason, name);
-  assert.equal(validReviewResponse(text), name === "numeric-overall", `${name}: complete input still requires a numeric assessment`);
+  // Every category is N/A here, so complete input accepts a numeric, missing or N/A Overall.
+  assert.equal(validReviewResponse(text), ["numeric-overall", "missing-overall", "ambiguous-overall"].includes(name), `${name}: complete input needs a numeric Overall, or N/A when no category applies`);
   for (const finish of ["stop", "length", null] as const) {
     const p = plan(false, 0);
     assert.equal(p.coverage.complete, false);
@@ -596,7 +597,27 @@ for (const [name, text] of [
   const response = await executeCoveredReview(requestFor(p), p.coverage, "v1", request => openaiProvider.create(request, "fake"));
   assert.equal(p.coverage.assessment?.state, "completed", "derived-overall");
   assert.ok(response.text.includes("| Consistency | 5/5 | Consistent |\n| **Overall** | **4/5** | Lowest category score |"), "derived-overall row");
-  assert.equal(reviewResponseValidationError(text.replace(/\| [1-5]\/5 \|/g, "| N/A |")), "Overall score missing, duplicated or malformed", "all N/A stays rejected");
+  assert.equal(reviewResponseValidationError(text.replace(/\| [1-5]\/5 \|/g, "| N/A |")), null, "all N/A derives an N/A Overall");
+  assert.ok(normalizeReviewResponse(text.replace(/\| [1-5]\/5 \|/g, "| N/A |")).includes("| **Overall** | **N/A** | No category applies |"), "derived N/A row");
+}
+// An N/A Overall beside a numeric category takes the lowest category score and keeps its notes.
+{
+  const p = plan();
+  const text = valid.replace("**4/5** | Lowest category", "**N/A** | Documentation-only change");
+  output = { choices: [{ message: { content: text }, finish_reason: "stop" }] };
+  const response = await executeCoveredReview(requestFor(p), p.coverage, "v1", request => openaiProvider.create(request, "fake"));
+  assert.equal(p.coverage.assessment?.state, "completed", "na-overall");
+  assert.ok(response.text.includes("| **Overall** | **4/5** | Documentation-only change |"), "na-overall row");
+}
+// When every category is N/A, an N/A Overall is a completed assessment.
+{
+  const p = plan();
+  const text = valid.replace(/\| [1-5]\/5 \|/g, "| N/A |").replace("**4/5** | Lowest category", "**N/A** | Documentation-only change");
+  output = { choices: [{ message: { content: text }, finish_reason: "stop" }] };
+  const response = await executeCoveredReview(requestFor(p), p.coverage, "v1", request => openaiProvider.create(request, "fake"));
+  assert.equal(p.coverage.assessment?.state, "completed", "all-na-overall");
+  assert.ok(response.text.includes("| **Overall** | **N/A** | Documentation-only change |"), "all-na-overall row");
+  assert.equal(reviewResponseValidationError(text, false), "Incomplete-input Overall must be exactly Not assessed, with no duplicate row", "incomplete input still needs Not assessed");
 }
 // The word Overall in a notes cell is not a second Overall row.
 {

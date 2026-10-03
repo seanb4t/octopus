@@ -165,20 +165,31 @@ const CATEGORY_ROWS: readonly string[] = SCORE_CATEGORIES.filter(category => cat
 
 /**
  * The template defines Overall as the lowest category score, so a Score table
- * with all five category rows and no Overall row is missing a derivable value,
- * not an assessment. Add the row. A table with no numeric score is left alone,
- * and incomplete input still needs the literal Not assessed row.
+ * with all five category rows has a derivable Overall. A missing row gets one,
+ * and an N/A Overall beside a numeric category gets the lowest score. When every
+ * category is N/A, no category applies and a missing Overall is N/A. Incomplete
+ * input still needs the literal Not assessed row.
  */
 function ensureOverallRow(text: string): string {
   const match = /^### Score[ \t]*\r?\n([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/m.exec(text);
   if (!match) return text;
   const lines = match[1].split("\n");
   const cell = (line: string, index: number) => scoreCells(line)[index]?.trim().replaceAll("**", "") ?? "";
-  if (lines.some(line => cell(line, 1) === "Overall")) return text;
   const rows = lines.map((line, index) => ({ line, index })).filter(row => CATEGORY_ROWS.includes(cell(row.line, 1)));
+  if (rows.length !== CATEGORY_ROWS.length) return text;
   const scores = rows.map(row => cell(row.line, 2)).filter(score => /^[1-5]\/5$/.test(score)).map(score => Number(score[0]));
-  if (rows.length !== CATEGORY_ROWS.length || scores.length === 0) return text;
-  lines.splice(rows[rows.length - 1].index + 1, 0, `| **Overall** | **${Math.min(...scores)}/5** | Lowest category score |`);
+  const overall = lines.flatMap((line, index) => cell(line, 1) === "Overall" ? [index] : []);
+  if (overall.length > 1) return text;
+  if (overall.length === 1) {
+    if (cell(lines[overall[0]], 2) !== "N/A" || scores.length === 0) return text;
+    const cells = scoreCells(lines[overall[0]]);
+    cells[2] = ` **${Math.min(...scores)}/5** `;
+    lines[overall[0]] = cells.join("|");
+  } else if (scores.length > 0) {
+    lines.splice(rows[rows.length - 1].index + 1, 0, `| **Overall** | **${Math.min(...scores)}/5** | Lowest category score |`);
+  } else if (rows.every(row => cell(row.line, 2) === "N/A")) {
+    lines.splice(rows[rows.length - 1].index + 1, 0, "| **Overall** | **N/A** | No category applies |");
+  } else return text;
   const start = match.index + match[0].length - match[1].length;
   return text.slice(0, start) + lines.join("\n") + text.slice(start + match[1].length);
 }
@@ -192,16 +203,20 @@ export function reviewResponseValidationError(text: string, inputComplete = true
     || !/^### Summary[ \t]*\r?\n\s*\S/m.test(text)) return "Review headings missing or duplicated";
   const score = scoreSection(text);
   if ((score.match(/^\|[ \t]*Category[ \t]*\|[ \t]*Score[ \t]*\|[ \t]*Notes[ \t]*\|[ \t]*\r?$/gm) ?? []).length !== 1) return "Score table header missing or duplicated";
+  let noCategoryApplies = true;
   for (const category of ["Security", "Code Quality", "Performance", "Error Handling", "Consistency"]) {
     const rows = score.split("\n").filter(line => scoreCells(line)[1]?.trim().replaceAll("**", "") === category);
     if (rows.length !== 1 || scoreCells(rows[0]).length !== 5
       || !(inputComplete ? /^(?:[1-5]\/5|N\/A)$/ : /^N\/A$/).test(scoreCells(rows[0])[2].trim().replaceAll("**", ""))) return "Score category rows missing, duplicated or malformed";
+    noCategoryApplies &&= scoreCells(rows[0])[2].trim().replaceAll("**", "") === "N/A";
   }
   // Only a row whose first cell is Overall counts: a notes cell that contains the
   // word ("consistent overall") is not a second Overall row.
   const overall = score.split("\n").filter(line => scoreCells(line)[1]?.trim().replaceAll("**", "") === "Overall");
   const cells = overall.length === 1 ? scoreCells(overall[0]) : [];
-  const overallScore = inputComplete ? /^\*\*[1-5]\/5\*\*$/ : /^\*\*Not assessed\*\*$/;
+  // With no applicable category there is no lowest score, so N/A is a valid Overall.
+  const overallScore = !inputComplete ? /^\*\*Not assessed\*\*$/
+    : noCategoryApplies ? /^\*\*(?:[1-5]\/5|N\/A)\*\*$/ : /^\*\*[1-5]\/5\*\*$/;
   if (cells.length !== 5 || cells[0].trim() !== "" || cells[4].trim() !== ""
     || cells[1].trim() !== "**Overall**" || !overallScore.test(cells[2].trim()) || !cells[3]) return inputComplete
     ? "Overall score missing, duplicated or malformed"
