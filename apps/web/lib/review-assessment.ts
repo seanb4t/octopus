@@ -149,8 +149,8 @@ function scoreStructure(text: string) {
  * the report heading (`## 🐙 Octopus Review — PR #12`) and an Overall row whose
  * two cells are not both bold, and horizontal spacing around score slashes.
  */
-export function normalizeReviewResponse(text: string): string {
-  return ensureOverallRow(text
+export function normalizeReviewResponse(text: string, inputComplete = true): string {
+  return ensureOverallRow(inputComplete, text
     .replace(/(^### Score[ \t]*\r?\n)([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/gm, (_section, heading: string, body: string) => heading + body.split("\n").map(line => {
       const cells = scoreCells(line);
       if (cells.length !== 5 || !SCORE_CATEGORIES.some(category => cells[1].trim().replaceAll("**", "") === category)) return line;
@@ -167,10 +167,11 @@ const CATEGORY_ROWS: readonly string[] = SCORE_CATEGORIES.filter(category => cat
  * The template defines Overall as the lowest category score, so a Score table
  * with all five category rows has a derivable Overall. A missing row gets one,
  * and an N/A Overall beside a numeric category gets the lowest score. When every
- * category is N/A, no category applies and a missing Overall is N/A. Incomplete
- * input still needs the literal Not assessed row.
+ * category is N/A, no category applies and a missing Overall is N/A. With complete
+ * input, a Not assessed Overall means the same as N/A. Incomplete input still
+ * needs the literal Not assessed row.
  */
-function ensureOverallRow(text: string): string {
+function ensureOverallRow(inputComplete: boolean, text: string): string {
   const match = /^### Score[ \t]*\r?\n([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/m.exec(text);
   if (!match) return text;
   const lines = match[1].split("\n");
@@ -181,9 +182,10 @@ function ensureOverallRow(text: string): string {
   const overall = lines.flatMap((line, index) => cell(line, 1) === "Overall" ? [index] : []);
   if (overall.length > 1) return text;
   if (overall.length === 1) {
-    if (cell(lines[overall[0]], 2) !== "N/A" || scores.length === 0) return text;
+    const score = cell(lines[overall[0]], 2);
+    if (score !== "N/A" && !(inputComplete && score === "Not assessed")) return text;
     const cells = scoreCells(lines[overall[0]]);
-    cells[2] = ` **${Math.min(...scores)}/5** `;
+    cells[2] = scores.length > 0 ? ` **${Math.min(...scores)}/5** ` : " **N/A** ";
     lines[overall[0]] = cells.join("|");
   } else if (scores.length > 0) {
     lines.splice(rows[rows.length - 1].index + 1, 0, `| **Overall** | **${Math.min(...scores)}/5** | Lowest category score |`);
@@ -196,7 +198,7 @@ function ensureOverallRow(text: string): string {
 
 /** Fixed diagnostic messages only: never include untrusted response excerpts. */
 export function reviewResponseValidationError(text: string, inputComplete = true): string | null {
-  text = normalizeReviewResponse(text);
+  text = normalizeReviewResponse(text, inputComplete);
   if ((text.match(/^## 🐙 Octopus Review[ \t]*\r?$/gm) ?? []).length !== 1
     || (text.match(/^### Score[ \t]*\r?$/gm) ?? []).length !== 1
     || (text.match(/^### Summary[ \t]*\r?$/gm) ?? []).length !== 1
@@ -336,5 +338,5 @@ export async function executeCoveredReview(
   assessment.reason = failures.length > 0 ? failures.join("; ")
     : coverage.complete ? "Provider completed a valid review response"
       : "Provider completed a valid response; overall score withheld because input coverage is incomplete";
-  return { ...response, text: normalizeReviewResponse(response.text) };
+  return { ...response, text: normalizeReviewResponse(response.text, coverage.complete) };
 }
