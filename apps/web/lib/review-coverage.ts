@@ -93,14 +93,32 @@ export const sha256 = (text: string): string => createHash("sha256").update(text
 export function diffFingerprint(diff: string): string {
   const files = new Map<string, string[]>();
   let current: string[] | null = null;
+  // The file header runs from `diff --git` to the first hunk. Only there are
+  // `---`, `+++` and `index` lines metadata: inside a hunk, a content line that
+  // starts with `++ ` or `-- ` is a real change and counts.
+  let inHeader = false;
+  let indexLine: string | null = null;
   for (const line of diff.split("\n")) {
     const file = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
     if (file) {
       current = files.get(file[2]) ?? [];
       files.set(file[2], current);
+      inHeader = true;
+      indexLine = null;
       continue;
     }
-    if (!current || line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("@@")) continue;
+    if (!current) continue;
+    if (inHeader) {
+      if (line.startsWith("@@")) { inHeader = false; continue; }
+      if (line.startsWith("index ")) { indexLine = line; continue; }
+      // A binary change has no content lines, so its blob ids are the change.
+      if (line.startsWith("Binary files ") || line === "GIT binary patch") {
+        current.push(line);
+        if (indexLine) current.push(indexLine);
+      }
+      continue;
+    }
+    if (line.startsWith("@@")) continue;
     if (line.startsWith("+") || line.startsWith("-")) current.push(line);
   }
   const hash = createHash("sha256");
