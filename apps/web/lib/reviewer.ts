@@ -57,12 +57,13 @@ import { buildGeneratedMatcher } from "@/lib/generated-files";
 import { MAX_DIFF_CHARS } from "@/lib/diff-truncate";
 import { completeReviewCandidate, reviewCandidateSha256, assertReviewProcessingActive, ReviewProcessingExpiredError, type CompleteReviewAdmission, type ReviewExecutionWindow } from "@/lib/review-capacity";
 import { confirmCompleteReviewCurrent } from "@/lib/review-capacity-current";
-import { prepareReviewInput, applyReviewCoverage, coverageSummary, reviewCheckResult, reviewAssessmentComplete, type ReviewInput, type ReviewCoverage } from "@/lib/review-coverage";
+import { prepareReviewInput, applyReviewCoverage, coverageSummary, coverageCounts, diffFingerprint, findingsSummarySection, reviewCheckResult, reviewAssessmentComplete, type ReviewInput, type ReviewCoverage, type ReviewOutcome } from "@/lib/review-coverage";
+import { findReusableAttempt } from "@/lib/review-reuse";
 import { prepareReviewComment } from "@/lib/review-comment-context";
 import { createCoveredReviewRequest } from "@/lib/review-request";
 import { canRestrictReviewToFollowUp } from "@/lib/review-follow-up";
 import { prepareRecoveredReviewPresentation, prepareReviewPresentation, mapReviewPresentation, enforceReviewFindingsIntegrity, finalizeReviewPresentation } from "@/lib/review-presentation";
-import { executeCoveredReview, executeFindingsRecovery, recordNoModelAssessment, markReviewAssessmentIncomplete } from "@/lib/review-assessment";
+import { executeCoveredReview, executeFindingsRecovery, recordNoModelAssessment, recordReusedAssessment, markReviewAssessmentIncomplete } from "@/lib/review-assessment";
 import { saveReviewAttempt, createReviewAttemptComment, updateCurrentReview, withForgejoReviewPublication, recordFirstReviewCompletion } from "@/lib/review-attempt";
 import { publishReviewSummary } from "@/lib/review-summary-comment";
 import type { ReviewComment } from "@/lib/github";
@@ -1395,6 +1396,64 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
       return;
     }
 
+    // A push that leaves the diff against the base unchanged reuses the last
+    // completed attempt: no model call, no new inline comment, one review that
+    // carries the earlier findings forward, and the check run of that attempt.
+    // A review requested by a comment always runs the model.
+    coverage.diffFingerprint = diffFingerprint(diff);
+    const reusable = pr.triggerCommentId ? null : await findReusableAttempt(pr.id, coverage, reviewModel);
+    if (reusable && reusable.coverage.headSha) {
+      const short = reusable.coverage.headSha.slice(0, 7);
+      console.log(`[reviewer] Diff unchanged since ${short}, reusing that attempt for PR #${pr.number}`);
+      recordReusedAssessment(coverage, reusable.coverage);
+      const outcome: ReviewOutcome = { ...reusable.outcome, reviewId: null };
+      const carried = outcome.summary ? `\n\n${outcome.summary}` : "";
+      const body = applyReviewCoverage(
+        `## 🐙 Octopus Review\n\n### Summary\nUnchanged since ${short}. The diff against the base branch is the one reviewed at that commit, and the findings of that review still apply.${carried}\n`,
+        coverage, attemptId,
+      );
+      await saveReviewAttempt(attemptId, pr.id, coverage, body, undefined, outcome);
+      attemptSaved = true;
+      if (isGitHub) reviewCommentId = await publishMainComment(body, body);
+      else if (reviewCommentId) await providerUpdateComment(reviewCommentId, body);
+      else await publishMainComment(body);
+      // The approval of the reused attempt comes back under the same gate as
+      // a clean review, with the findings count of that attempt.
+      const approve = isGitHub && installationId && priorCommentsKnown && outcome.event === "APPROVE" && shouldApproveReview({
+        enabled: org.approveCleanReviews === true,
+        findings: outcome.findings,
+        coverageComplete: true,
+        priorBotComments: priorBotCommentSignals(allPriorReviewComments, botLogin),
+      });
+      if (isGitHub && installationId) {
+        const count = outcome.visibleFindings;
+        const link = reviewCommentId && pr.url ? ` | [View the carried review](${pr.url}#issuecomment-${reviewCommentId})` : "";
+        try {
+          await ghCreatePullRequestReview(
+            installationId, owner, repoName, pr.number,
+            `${coverageSummary(coverage)} Unchanged since ${short}. ${count} finding${count !== 1 ? "s" : ""} carried forward.${link}`,
+            approve ? "APPROVE" : "COMMENT", [], undefined, coverage.headSha ?? undefined,
+          );
+        } catch (err) {
+          console.warn("[reviewer] Failed to post the review of a reused attempt:", err);
+        }
+      }
+      const result = {
+        conclusion: outcome.conclusion,
+        title: `${coverageCounts(coverage).total} changed files, unchanged since ${short}, ${outcome.visibleFindings} findings`,
+        summary: `Review scope complete. The diff is unchanged since ${short}, and the findings of that review still apply.`,
+      };
+      if (checkRunId && isGitHub && installationId) {
+        await ghUpdateCheckRun(installationId, owner, repoName, checkRunId, result.conclusion, { title: result.title, summary: result.summary });
+      }
+      if (pr.headSha && usesProjectApi) {
+        await projectProvider.setCommitStatus(org.id, projectPath, pr.headSha, result.conclusion === "success" ? "success" : "failed", COMMIT_STATUS_NAME, result.summary);
+      }
+      await recordFirstReviewCompletion(pr.id, pr.headSha, pr.reviewRequestVersion, body);
+      await emitReviewStatus(org.id, { ...baseEvent, status: "completed", step: "completed", detail: result.summary });
+      return;
+    }
+
     // Step 3: Embed diff → semantic search for codebase context
     await emitReviewStatus(org.id, {
       ...baseEvent,
@@ -2218,6 +2277,8 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
     // Track the actual number of findings visible to the user (inline + summary table)
     // This gets set by the GitHub/Bitbucket posting logic below
     let effectiveFindingsCount = 0;
+    // The GitHub review id of this attempt, recorded in its outcome.
+    let postedReviewId: number | null = null;
 
     // Resolved-count signal: only meaningful on a re-review. A prior bot
     // inline comment is considered resolved when GitHub marks it `isOutdated`
@@ -2286,6 +2347,7 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
             summaryLine, reviewEvent, dedupedComments, undefined, coverage.headSha ?? undefined,
           );
           inlineReviewSucceeded = true;
+          postedReviewId = reviewId;
           console.log(`[reviewer] PR review submitted with ${dedupedComments.length} inline comments, ${nonInlineWithUnmappable.length} in summary (${reviewEvent}), reviewId: ${reviewId}`);
 
           // Match GitHub review comments to ReviewIssue records by file+line
@@ -2330,7 +2392,7 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
         const summaryBody = buildReviewSummary(findingsBlock, allSummaryFindings.length);
         try {
           assertProcessingActive();
-          await ghCreatePullRequestReview(
+          postedReviewId = await ghCreatePullRequestReview(
             installationId, owner, repoName, pr.number,
             summaryBody, reviewEvent, [], undefined, coverage.headSha ?? undefined,
           );
@@ -2455,8 +2517,14 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
     ({ report: effectiveReviewBody, comment: mainCommentBody } = finalizeReviewPresentation(
       response.text, effectiveReviewBody, mainCommentBody, coverage, attemptId, { hasCritical, hasHigh, hasMedium },
     ));
+    // The outcome of this attempt, read by a later push that reuses it.
+    const outcomeCheck = reviewCheckResult(coverage, shouldFailReviewCheck({ hasCritical, hasHigh, hasMedium }, threshold), effectiveFindingsCount);
+    const outcome: ReviewOutcome = {
+      findings: findings.length, visibleFindings: effectiveFindingsCount, event: isGitHub ? reviewEvent : null,
+      conclusion: outcomeCheck.conclusion, title: outcomeCheck.title, reviewId: postedReviewId, summary: findingsSummarySection(effectiveReviewBody),
+    };
     assertProcessingActive();
-    const promoted = await saveReviewAttempt(attemptId, pr.id, coverage, effectiveReviewBody, mergedIssues);
+    const promoted = await saveReviewAttempt(attemptId, pr.id, coverage, effectiveReviewBody, mergedIssues, outcome);
     attemptSaved = true;
 
     // The final scored comment becomes visible only after its immutable outcome is durable.
