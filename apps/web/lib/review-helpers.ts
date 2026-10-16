@@ -229,6 +229,76 @@ export function parseDiffLines(diff: string): Map<string, Set<number>> {
   return fileLines;
 }
 
+/**
+ * The text of every right-side line of the diff, by file and new line number.
+ * The same walk as parseDiffLines, with the line text kept and the leading
+ * marker removed. A suggestion block replaces these lines, so their text is
+ * what a replacement has to resemble.
+ */
+export function parseDiffLineText(diff: string): Map<string, Map<number, string>> {
+  const fileLines = new Map<string, Map<number, string>>();
+  let currentFile = "";
+  let newLine = 0;
+  let remainingNewLines = 0;
+
+  for (const line of diff.split("\n")) {
+    const fileMatch = line.match(/^diff --git a\/(.+?) b\/(.+)/);
+    if (fileMatch) {
+      currentFile = fileMatch[2];
+      newLine = 0;
+      remainingNewLines = 0;
+      if (!fileLines.has(currentFile)) fileLines.set(currentFile, new Map());
+      continue;
+    }
+
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (hunkMatch) {
+      newLine = parseInt(hunkMatch[1], 10);
+      remainingNewLines = parseInt(hunkMatch[2] ?? "1", 10);
+      continue;
+    }
+
+    if (!currentFile || remainingNewLines <= 0) continue;
+
+    if (line.startsWith("+") || line.startsWith(" ") || line === "") {
+      fileLines.get(currentFile)?.set(newLine, line.slice(1));
+      newLine++;
+      remainingNewLines--;
+    }
+  }
+
+  return fileLines;
+}
+
+const SED_EXPRESSION = /^s\/.+\/.*\/[a-z]*$/;
+const ADVICE_OPENING = /^(?:Change|Confirm|Consider|Reorder|Use|Add|Remove|Replace|Update|Make|Ensure|Verify|Check) [a-z]/;
+const CODE_MARK = /[=({[;<#]|^\s*-/m;
+/** The least share of suggestion tokens that the anchored lines have to hold. */
+const REPLACEMENT_OVERLAP = 0.15;
+
+/**
+ * Whether a suggestion is replacement text for the anchored lines, which a
+ * `suggestion` block applies verbatim, or advice that a person has to read. A
+ * `sed` expression is advice. A text that opens with an English imperative
+ * and holds no code mark is advice. With the anchored lines known, a text
+ * whose tokens are mostly absent from them is advice. An empty suggestion and
+ * a text with no anchored lines to compare count as replacement text.
+ */
+export function isReplacementSuggestion(suggestion: string, anchoredLines?: string[]): boolean {
+  const text = suggestion.trim();
+  if (!text) return true;
+  if (SED_EXPRESSION.test(text)) return false;
+  if (ADVICE_OPENING.test(text) && !CODE_MARK.test(text)) return false;
+  if (!anchoredLines || anchoredLines.length === 0) return true;
+  const tokens = (value: string) => new Set(value.toLowerCase().match(/[a-z0-9_]+/g) ?? []);
+  const suggested = tokens(text);
+  const anchored = tokens(anchoredLines.join("\n"));
+  if (suggested.size === 0 || anchored.size === 0) return true;
+  let shared = 0;
+  for (const token of suggested) if (anchored.has(token)) shared++;
+  return shared / suggested.size >= REPLACEMENT_OVERLAP;
+}
+
 // ─── Severity & Finding Management ──────────────────────────────────────────
 
 export const MAX_FINDINGS_PER_REVIEW = 30;
@@ -444,8 +514,10 @@ export function buildInlineComments(
   findings: InlineFinding[],
   diffLines: Map<string, Set<number>>,
   provider: string = "github",
+  diffText?: string,
 ): ReviewComment[] {
   const comments: ReviewComment[] = [];
+  const lineText = diffText === undefined ? null : parseDiffLineText(diffText);
 
   for (const f of findings) {
     const validLines = diffLines.get(f.filePath);
@@ -481,10 +553,17 @@ export function buildInlineComments(
 
     let body = `**${f.severity} ${f.title}**\n\n${f.description}`;
     if (f.suggestion) {
-      // GitHub supports native ```suggestion blocks; Bitbucket uses plain code blocks
-      const suggestionBlock = provider === "github"
-        ? `\`\`\`suggestion\n${f.suggestion}\n\`\`\``
-        : `**Suggested fix:**\n\`\`\`\n${f.suggestion}\n\`\`\``;
+      // A `suggestion` block is applied verbatim by a click on GitHub, so it
+      // holds replacement text only. Advice gets a label and a plain block.
+      const anchoredLines = lineText === null ? undefined
+        : Array.from({ length: Math.max(0, f.endLine - f.startLine + 1) }, (_, i) => lineText.get(f.filePath)?.get(f.startLine + i))
+          .filter((line): line is string => line !== undefined);
+      const replacement = isReplacementSuggestion(f.suggestion, anchoredLines);
+      const suggestionBlock = !replacement
+        ? `**Suggested change**\n\n\`\`\`\n${f.suggestion}\n\`\`\``
+        : provider === "github"
+          ? `\`\`\`suggestion\n${f.suggestion}\n\`\`\``
+          : `**Suggested fix:**\n\`\`\`\n${f.suggestion}\n\`\`\``;
       body += `\n\n${suggestionBlock}`;
     }
 
