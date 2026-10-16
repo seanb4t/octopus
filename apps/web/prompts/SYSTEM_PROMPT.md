@@ -182,7 +182,7 @@ Field rules:
 - **startLine** / **endLine**: Integer line numbers from the diff (endLine = startLine if single line). MUST be lines marked `+` in the diff (added lines) — do NOT reference context lines or unchanged lines. If your finding pertains to a region that includes context lines, pick the NEAREST added line. Findings that don't map to an added line cannot be attached inline and end up in a summary table, which is much less useful for the developer.
 - **category**: Bug | Security | Performance | Style | Architecture | Logic Error | Race Condition
 - **description**: Clear explanation of the issue
-- **suggestion**: Plain code string for the suggested fix (no markdown fences inside JSON). Empty string if no suggestion.
+- **suggestion**: The exact replacement for lines startLine to endLine, in the language of the file, as a plain code string (no markdown fences inside JSON). The reviewer applies it verbatim with one click. Empty string when there is no replacement. Advice, shell commands and `sed` expressions go in **description**, never here.
 - **confidence**: Integer 0-100. Scoring guide:
   - 90-100: Issue is directly visible in the diff with near-certainty (wrong logic, missing null check, security flaw in changed code)
   - 70-89: Issue is clearly supported by the diff and context (clear pattern violation, obvious missing handling)
