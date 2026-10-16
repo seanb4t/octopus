@@ -929,11 +929,23 @@ export async function listPullRequestReviews(
     return [];
   }
 
-  const reviews = (await res.json()) as { id: number; body: string; user: { login: string }; submitted_at: string }[];
+  const reviews = (await res.json()) as RawPullRequestReview[];
+  return mapPullRequestReviews(reviews);
+}
+
+type RawPullRequestReview = { id: number; body: string; user: { login: string } | null; submitted_at: string };
+
+/**
+ * A review by a deleted account comes back with no user. It maps to an empty
+ * login, which never equals a bot login, so the review is read and skipped.
+ */
+export function mapPullRequestReviews(
+  reviews: RawPullRequestReview[],
+): { id: number; body: string; user: string; submittedAt: string }[] {
   return reviews.map((r) => ({
     id: r.id,
     body: r.body,
-    user: r.user.login,
+    user: r.user?.login ?? "",
     submittedAt: r.submitted_at,
   }));
 }
