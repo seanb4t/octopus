@@ -2154,7 +2154,7 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
     console.log(`[reviewer] Split: ${inlineFindings.length} inline (${inlineSeverities.join(",")}), severities: ${findings.map((f) => f.severity).join(",")}`);
 
     const diffLines = parseDiffLines(diff);
-    const inlineComments = buildInlineComments(inlineFindings, diffLines, repo.provider);
+    const inlineComments = buildInlineComments(inlineFindings, diffLines, repo.provider, diff);
     console.log(`[reviewer] Built ${inlineComments.length} inline comments from ${inlineFindings.length} inline findings`);
 
     // Identify inline findings that were dropped because they couldn't map to valid diff lines.
