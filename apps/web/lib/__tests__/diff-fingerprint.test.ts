@@ -31,6 +31,22 @@ describe("diffFingerprint", () => {
     expect(diffFingerprint(a)).not.toBe(diffFingerprint(b));
   });
 
+  it("counts a content line that starts with the file-header markers", () => {
+    // A content line `++ x` appears as `+++ x` in the diff, and a removed `-- x` as `--- x`.
+    const before = diffFingerprint(file(change(10)));
+    const plusPlus = diffFingerprint(file(`@@ -10,3 +10,4 @@ function a() {\n context\n-old line\n+new line\n+++ x\n context\n`));
+    const minusMinus = diffFingerprint(file(`@@ -10,4 +10,3 @@ function a() {\n context\n-old line\n--- x\n+new line\n context\n`));
+    expect(plusPlus).not.toBe(before);
+    expect(minusMinus).not.toBe(before);
+    expect(plusPlus).not.toBe(minusMinus);
+  });
+
+  it("counts the blob ids of a binary change", () => {
+    const binary = (index: string) => `diff --git a/logo.png b/logo.png\n${index}\nBinary files a/logo.png and b/logo.png differ\n`;
+    expect(diffFingerprint(binary("index 1111111..2222222 100644"))).not.toBe(diffFingerprint(binary("index 1111111..3333333 100644")));
+    expect(diffFingerprint(binary("index 1111111..2222222 100644"))).toBe(diffFingerprint(binary("index 1111111..2222222 100644")));
+  });
+
   it("includes hunk headers in the proof that it ignores them", () => {
     // The raw text differs between the two diffs, so a hash of the raw text would differ.
     const raw = (s: number) => file(change(s));
