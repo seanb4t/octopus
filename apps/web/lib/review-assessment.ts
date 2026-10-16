@@ -20,9 +20,11 @@ export type FindingsRecoveryEvidence = {
 
 export type ReviewAssessment = {
   capacityAdmission?: CapacityAdmissionReceipt;
-  state: "completed" | "incomplete" | "not-required";
+  /** `reused`: no model call; the attempt carries the outcome of the attempt named in `reusedHeadSha`. */
+  state: "completed" | "incomplete" | "not-required" | "reused";
   reason: string;
   model: string | null;
+  reusedHeadSha?: string;
   policySha256: string;
   templateSha256: string;
   requests: AiRequestReceipt[];
@@ -345,6 +347,24 @@ export function markReviewAssessmentIncomplete(coverage: ReviewCoverage, reason:
   if (!coverage.assessment) return;
   coverage.assessment.state = "incomplete";
   coverage.assessment.reason = reason;
+}
+
+/**
+ * The assessment of an attempt that reuses an earlier one: the diff against
+ * the base is unchanged since the head of that attempt, so its model, its
+ * response hash and its outcome stand for this head too.
+ */
+export function recordReusedAssessment(coverage: ReviewCoverage, prior: ReviewCoverage): void {
+  const head = prior.headSha ?? "unknown";
+  coverage.assessment = {
+    state: "reused",
+    reason: `Diff unchanged since ${head.slice(0, 7)}; the attempt of that commit is reused`,
+    model: prior.assessment?.model ?? null,
+    policySha256: sha256(JSON.stringify({ policy: "reused-assessment-v1", coverage })),
+    templateSha256: prior.assessment?.templateSha256 ?? sha256("reused"),
+    requests: [], responseSha256: prior.assessment?.responseSha256 ?? null, completion: null,
+    reusedHeadSha: head,
+  };
 }
 
 export function recordNoModelAssessment(coverage: ReviewCoverage): void {
