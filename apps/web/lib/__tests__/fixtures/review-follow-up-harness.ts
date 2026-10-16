@@ -20,6 +20,7 @@ let preparationState: "ready" | "waiting" | "failure" = "ready";
 const forgejoPublications: string[] = [];
 let directComments = 0;
 let prior: ReviewCoverage | null = null;
+let priorOutcome: unknown = null;
 let lookupFailure = false;
 let received: { messages: { role: string; content: string }[] };
 let malformed = false;
@@ -44,9 +45,13 @@ globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
   init.signal.throwIfAborted();
   throw new Error("Expected aborted request");
 }) as typeof fetch;
+let providerCalls = 0;
+// Appended to the changed line of the fixture diff, so a scenario can change the diff.
+let extraLine = "";
 class FakeOpenAI {
   chat = { completions: { create: async (request: typeof received) => {
     received = request;
+    providerCalls++;
     if (providerInterrupted) throw new Error("fixture provider interrupted");
     return { model: "gpt-fixture", choices: [{ finish_reason: "stop", message: { content: responseOverride ?? (malformed ? "Malformed response" : report) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
   } } };
@@ -70,9 +75,12 @@ const pr = {
 };
 mock.module("@octopus/db", () => ({ prisma: {
   reviewAttempt: { findFirst: async (query: unknown) => {
-    assert.deepEqual(query, { where: { pullRequestId: "pr" }, orderBy: { createdAt: "desc" }, select: { coverage: true } });
+    // The follow-up restriction reads the coverage; the reuse lookup reads the outcome too.
+    const select = (query as { select: Record<string, boolean> }).select;
+    assert.deepEqual({ ...(query as object), select: undefined }, { where: { pullRequestId: "pr" }, orderBy: { createdAt: "desc" }, select: undefined });
+    assert.ok(select.coverage === true && (select.outcome === undefined || select.outcome === true), JSON.stringify(select));
     if (lookupFailure) throw new Error("fixture lookup failure");
-    return prior ? { coverage: prior } : null;
+    return prior ? { coverage: prior, ...(select.outcome ? { outcome: priorOutcome } : {}) } : null;
   } },
   repository: {
     findUnique: async () => repo,
@@ -137,7 +145,7 @@ mock.module("@/lib/review-validation", () => ({
 
 // Hosted review integration: keep generation, parsing, suppression and finding
 // persistence mapping real; replace external services and unrelated prerequisites.
-const archived: { id: string; findings: { title: string }[]; coverage: unknown; body: string }[] = [];
+const archived: { id: string; findings: { title: string }[]; coverage: unknown; body: string; outcome: unknown }[] = [];
 const summaries: string[] = [];
 const published: { body: string; event: string; comments: unknown[] }[] = [];
 const priorReviewComments: { id: number; user: string; path: string; line: number; body: string; inReplyToId: number | null; isOutdated: boolean }[] = [
@@ -167,8 +175,8 @@ mock.module("@/lib/review-attempt", () => ({
   withForgejoReviewPublication: directCommentFailure ? realReviewAttempt.withForgejoReviewPublication : async (_id: string, _head: string, _version: number, publish: () => Promise<void>) => publish(),
   createReviewAttemptComment: directCommentFailure ? realReviewAttempt.createReviewAttemptComment : async (_id: string, _head: string, _version: number, create: () => Promise<number>) => create(),
   updateCurrentReview: directCommentFailure || firstCompletion ? realReviewAttempt.updateCurrentReview : async () => ({ count: 1 }),
-  saveReviewAttempt: async (_id: string, _pr: string, _coverage: unknown, _body: string, findings: { title: string }[]) => {
-    archived.push({ id: _id, findings, coverage: structuredClone(_coverage), body: _body });
+  saveReviewAttempt: async (_id: string, _pr: string, _coverage: unknown, _body: string, findings: { title: string }[], outcome?: unknown) => {
+    archived.push({ id: _id, findings, coverage: structuredClone(_coverage), body: _body, outcome: structuredClone(outcome ?? null) });
     if (firstCompletion) Object.assign(pr, { status: "completed", reviewBody: _body });
     if (adaptiveStage === "after-save" && (_coverage as ReviewCoverage).assessment?.state === "completed") adaptiveAbort.abort();
     if ((_coverage as ReviewCoverage).assessment?.state === "completed") completedSnapshot = JSON.stringify(archived.at(-1));
@@ -182,7 +190,7 @@ mock.module("@/lib/github", () => ({
     expectedFiles: 1, limitations: [],
     files: excludedOnly
       ? [{ path: "openspec/changes/fixture/tasks.md", change: "modified", patch: "@@ -1 +1 @@\n-- [ ] 1.1\n+- [x] 1.1\n", additions: 1, deletions: 1 }]
-      : [{ path: "src/check.ts", change: "modified", patch: `@@ -1 +1 @@\n-return value;\n+return value.name;${adaptiveStage ? " ".repeat(400000) : ""}\n`, additions: 1, deletions: 1 }],
+      : [{ path: "src/check.ts", change: "modified", patch: `@@ -1 +1 @@\n-return value;\n+return value.name;${extraLine}${adaptiveStage ? " ".repeat(400000) : ""}\n`, additions: 1, deletions: 1 }],
   } }),
   getPullRequestDetails: async () => ({ body: "Handle missing values" }),
   createPullRequestComment: async () => { directComments++; return 123; },
@@ -410,6 +418,96 @@ if (approveCleanReviews) {
   excludedOnly = false;
   console.log("PASS a review with nothing to assess under policy approves under the same gate");
   console.log("PASS clean reviews approve only with the setting on and settled earlier comments");
+
+  // ── A push with an unchanged diff reuses the last attempt ──────────────────
+  const prFixture = pr as typeof pr & { triggerCommentId?: number };
+  org.approveCleanReviews = true;
+  priorReviewComments.length = 0;
+  prior = null;
+  pr.headSha = "a".repeat(40);
+  responseOverride = cleanReport;
+  await processReview("pr");
+  const first = archived.at(-1)!.coverage as ReviewCoverage;
+  const firstOutcome = archived.at(-1)!.outcome as { summary: string; title: string } & Record<string, unknown>;
+  assert.equal(first.assessment?.state, "completed");
+  assert.ok(first.diffFingerprint, "a completed attempt records the diff fingerprint");
+  assert.equal((first as Record<string, unknown>).outcome, undefined, "the outcome is not in the coverage evidence");
+  assert.deepEqual({ ...firstOutcome, summary: undefined, title: undefined }, { findings: 0, visibleFindings: 0, event: "APPROVE", conclusion: "success", reviewId: 456, summary: undefined, title: undefined });
+  assert.ok(firstOutcome.summary.startsWith("### Findings Summary"));
+  assert.equal(published.at(-1)!.event, "APPROVE");
+  const callsBefore = providerCalls;
+  const publishedBefore = published.length;
+  // The force-push moves the head to B with the same diff against the base.
+  prior = structuredClone(first);
+  priorOutcome = structuredClone(firstOutcome);
+  pr.headSha = "c".repeat(40);
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore, "no model call for an unchanged diff");
+  const reused = archived.at(-1)!.coverage as ReviewCoverage;
+  assert.equal(reused.assessment?.state, "reused");
+  assert.equal(reused.assessment?.reusedHeadSha, "a".repeat(40));
+  assert.equal(reused.assessment?.model, first.assessment?.model);
+  assert.equal(reused.headSha, "c".repeat(40));
+  assert.equal(reused.diffFingerprint, first.diffFingerprint);
+  assert.deepEqual(archived.at(-1)!.outcome, { ...firstOutcome, reviewId: null }, "the outcome is carried forward");
+  assert.equal(published.length, publishedBefore + 1, "one review for the reused attempt");
+  assert.equal(published.at(-1)!.event, "APPROVE", "the approval of the reused attempt comes back");
+  assert.equal(published.at(-1)!.comments.length, 0, "no inline comment for a reused attempt");
+  assert.ok(published.at(-1)!.body.includes("Unchanged since aaaaaaa"), published.at(-1)!.body);
+  assert.equal(checkConclusions.at(-1), "success");
+  assert.ok(archived.at(-1)!.body.includes("Unchanged since aaaaaaa"));
+  assert.ok(archived.at(-1)!.body.includes("### Findings Summary"), "the carried summary table is in the body");
+  // A second rebase reuses the reused attempt.
+  prior = structuredClone(reused);
+  priorOutcome = structuredClone(archived.at(-1)!.outcome);
+  pr.headSha = "d".repeat(40);
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore, "a reused attempt is reused again");
+  assert.equal((archived.at(-1)!.coverage as ReviewCoverage).assessment?.state, "reused");
+  assert.equal(published.at(-1)!.event, "APPROVE");
+  // An open earlier comment blocks the approval of a reused attempt.
+  prior = structuredClone(first);
+  priorOutcome = structuredClone(firstOutcome);
+  priorReviewComments.push({ id: 9, user: "fixture[bot]", path: "src/check.ts", line: 1, body: "🟠 Still open", inReplyToId: null, isOutdated: false });
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore);
+  assert.equal(published.at(-1)!.event, "COMMENT", "an open earlier comment blocks the approval of a reused attempt");
+  priorReviewComments.length = 0;
+  // The setting off: the reused attempt posts a COMMENT.
+  org.approveCleanReviews = false;
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore);
+  assert.equal(published.at(-1)!.event, "COMMENT", "a reused attempt posts a COMMENT with the setting off");
+  org.approveCleanReviews = true;
+  // A comment request always runs the model.
+  prFixture.triggerCommentId = 5;
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore + 1, "a comment request runs the model");
+  assert.equal((archived.at(-1)!.coverage as ReviewCoverage).assessment?.state, "completed");
+  prFixture.triggerCommentId = 0;
+  // A push that changes the diff runs the model.
+  extraLine = " // changed";
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore + 2, "a changed diff runs the model");
+  assert.notEqual((archived.at(-1)!.coverage as ReviewCoverage).diffFingerprint, first.diffFingerprint);
+  extraLine = "";
+  // A different model runs the model.
+  prior = { ...structuredClone(first), assessment: { ...first.assessment!, model: "other-model" } };
+  await processReview("pr");
+  assert.equal(providerCalls, callsBefore + 3, "a different model runs the model");
+  // A lookup failure reviews.
+  prior = structuredClone(first);
+  lookupFailure = true;
+  const warnBefore = console.warn;
+  console.warn = () => {};
+  try { await processReview("pr"); } finally { console.warn = warnBefore; lookupFailure = false; }
+  assert.equal(providerCalls, callsBefore + 4, "a lookup failure runs the model");
+  prior = null;
+  priorOutcome = null;
+  pr.headSha = "a".repeat(40);
+  responseOverride = null;
+  org.approveCleanReviews = false;
+  console.log("PASS a push with an unchanged diff reuses the last attempt");
   process.exit(0);
 }
 const current = prepareReviewInput({ provider: "github", headSha: pr.headSha, baseSha: "b".repeat(40), expectedFiles: 1, inventoryComplete: true, limitations: [], files: [
