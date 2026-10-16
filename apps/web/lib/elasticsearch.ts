@@ -1,6 +1,11 @@
 import { safeIndexLogMessage } from "@/lib/index-log-safety";
 import { Client } from "@elastic/elasticsearch";
 
+// The sync-log store is optional. Without a URL every write is a no-op and
+// every read is empty, with no log line, so an install with no Elasticsearch
+// does not report a failure on each index run.
+const ES_ENABLED = Boolean(process.env.ELASTICSEARCH_URL);
+
 let client: Client | null = null;
 
 function getClient(): Client {
@@ -65,6 +70,7 @@ async function legacyScope(es: Client, index: string, orgId: string, repoId: str
 }
 
 export async function writeSyncLog(entry: SyncLogEntry): Promise<void> {
+  if (!ES_ENABLED) return;
   try {
     const es = getClient();
     const index = getIndexName(REPO_SYNC_INDEX);
@@ -88,6 +94,7 @@ export async function getSyncLogs(
   limit = 500,
   indexAttemptId?: string,
 ): Promise<SyncLogEntry[]> {
+  if (!ES_ENABLED) return [];
   try {
     const es = getClient();
     const index = getIndexName(indexAttemptId ? REPO_SYNC_ATTEMPT_INDEX : REPO_SYNC_INDEX);
@@ -132,6 +139,7 @@ export async function deleteSyncLogs(
   orgId: string,
   repoId: string,
 ): Promise<void> {
+  if (!ES_ENABLED) return;
   try {
     const es = getClient();
     const index = getIndexName(REPO_SYNC_INDEX);
