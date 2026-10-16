@@ -59,9 +59,63 @@ export type ReviewCoverage = {
   nativeCheckId?: string;
   reviewRequestVersion?: number;
   comment?: { receivedChars: number; suppliedChars: number; truncated: boolean; verifiedAsChangedSource: false };
+  /** The fingerprint of the prepared diff, see diffFingerprint. A later push with the same one reuses the attempt. */
+  diffFingerprint?: string;
+};
+
+/**
+ * What an attempt posted, stored in its own column of the attempt record so
+ * the coverage evidence stays independent of the findings. A reused attempt
+ * carries the outcome of the attempt it reuses.
+ */
+export type ReviewOutcome = {
+  /** The post-filter findings count that the approval gate read. */
+  findings: number;
+  /** The findings visible to the reader: inline comments plus the summary table. */
+  visibleFindings: number;
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" | null;
+  conclusion: "failure" | "success";
+  title: string;
+  reviewId: number | null;
+  /** The Findings Summary section of the review body, carried forward by a reused attempt. */
+  summary: string;
 };
 
 export const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+/**
+ * A fingerprint of a unified diff in the manner of `git patch-id`: for each
+ * file in path order, the path and its added and removed lines. Hunk headers,
+ * `index` lines and the file headers are left out, so a rebase that moves a
+ * hunk or renews a blob id gives the same fingerprint, and one more added or
+ * removed line gives another.
+ */
+export function diffFingerprint(diff: string): string {
+  const files = new Map<string, string[]>();
+  let current: string[] | null = null;
+  for (const line of diff.split("\n")) {
+    const file = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+    if (file) {
+      current = files.get(file[2]) ?? [];
+      files.set(file[2], current);
+      continue;
+    }
+    if (!current || line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("@@")) continue;
+    if (line.startsWith("+") || line.startsWith("-")) current.push(line);
+  }
+  const hash = createHash("sha256");
+  for (const path of [...files.keys()].sort()) {
+    hash.update(`${path}\n`);
+    for (const line of files.get(path)!) hash.update(`${line}\n`);
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/** The Findings Summary section of a review body, heading included, or an empty string. */
+export function findingsSummarySection(body: string): string {
+  return /### Findings Summary[\s\S]*?(?=\n### |\n## |<!-- OCTOPUS_FINDINGS_START -->|$)/.exec(body)?.[0].trimEnd() ?? "";
+}
 
 export function unknownReviewCoverage(provider: string, reason: string): ReviewCoverage {
   return { version: 1, provider, headSha: null, baseSha: null, inventoryComplete: false, expectedFiles: null, complete: false, files: [], limitations: [reason] };
@@ -212,7 +266,8 @@ export function coverageCounts(coverage: ReviewCoverage) {
 }
 
 export function reviewAssessmentComplete(coverage: ReviewCoverage): boolean {
-  return coverage.complete && (coverage.assessment?.state === "completed" || coverage.assessment?.state === "not-required");
+  const state = coverage.assessment?.state;
+  return coverage.complete && (state === "completed" || state === "not-required" || state === "reused");
 }
 
 export function reviewCheckResult(coverage: ReviewCoverage, blocking: boolean, findings: number): { conclusion: "failure" | "success"; title: string; summary: string } {

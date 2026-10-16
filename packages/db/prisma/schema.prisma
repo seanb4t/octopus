@@ -444,6 +444,9 @@ model ReviewAttempt {
   baseSha       String?
   coverage      Json
   reviewBody    String
+  // What the attempt posted: findings count, review event, check run result
+  // and the carried summary. A later push with the same diff reuses it.
+  outcome       Json?
   createdAt     DateTime @default(now())
 
   delivery ReviewAttemptDelivery?
