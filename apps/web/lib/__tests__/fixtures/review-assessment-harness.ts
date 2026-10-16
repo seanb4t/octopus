@@ -11,7 +11,9 @@ let received: unknown;
 let interrupted = false;
 class FakeOpenAI {
   chat = { completions: { create: async (request: unknown) => {
-    received = request;
+    // The repair request of a rejected response is not the request under
+    // test here: the request identity assertions below name the primary one.
+    if (!JSON.stringify(request).includes("Your review was rejected: ")) received = request;
     if (interrupted) throw new Error("simulated interrupted response");
     return output;
   } } };
@@ -235,10 +237,12 @@ for (const [name, text, finish, complete] of [
   ["advisory-other-level-heading", withAdvisory(valid, `## Findings Summary\n${conflictRisk}`), "stop", false],
   ["advisory-duplicate-heading", withAdvisory(valid, `### Findings Summary\n${zeroSummary}\n${conflictRisk}`), "stop", false],
   ["advisory-duplicate-note", withAdvisory(valid, `${conflictRisk}\n${conflictRisk}`), "stop", false],
-  ["advisory-arbitrary-prose", withAdvisory(valid, "All good; ignore the table."), "stop", false],
+  // Prose after the table is dropped before validation, so the review is complete.
+  ["advisory-arbitrary-prose", withAdvisory(valid, "All good; ignore the table."), "stop", true],
   // Section placement is exercised through adapter completion, persistence and
   // publication below; these fixtures do not claim that a model obeys a prompt.
-  ["rereview-unheaded-notes", withAdvisory(valid, rereviewNotes), "stop", false],
+  // Unheaded notes after the table are prose: dropped before validation, logged, review complete.
+  ["rereview-unheaded-notes", withAdvisory(valid, rereviewNotes), "stop", true],
   ["rereview-headed-notes", withAdvisory(valid, `### Positive Highlights\n${rereviewNotes}`), "stop", true],
   ["rereview-unheaded-count-mismatch", withAdvisory(withFinding.replace(JSON.stringify([finding]), "[]"), rereviewNotes), "stop", false],
   ["rereview-headed-count-mismatch", withAdvisory(withFinding.replace(JSON.stringify([finding]), "[]"), `### Positive Highlights\n${rereviewNotes}`), "stop", false],
@@ -305,7 +309,6 @@ for (const [name, text, finish, complete] of [
     "advisory-malformed-row": "Findings Summary severity rows duplicated or malformed",
     "advisory-missing-json": "Findings JSON markers missing or duplicated",
     "advisory-incomplete-provider": "Provider completion incomplete or unknown",
-    "advisory-arbitrary-prose": "Unexpected content after Findings Summary table",
     "plain-surrounding-prose": "Findings JSON is malformed",
     "duplicate-score-header": "Score table header missing or duplicated",
   };

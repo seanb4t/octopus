@@ -32,7 +32,35 @@ export type ReviewAssessment = {
   responseValidation?: { state: "valid" | "invalid"; reason: string | null; scoreStructure?: ReturnType<typeof scoreStructure> };
   /** Supplemental extraction evidence; never repairs the primary assessment. */
   recoveries?: FindingsRecoveryEvidence[];
+  /**
+   * The one repair request after a rejected response. When the repair was
+   * accepted, the response fields above describe the repaired response and
+   * `repair.rejectedSha256` names the first one.
+   */
+  repair?: ReviewRepairEvidence;
 };
+
+export type ReviewRepairEvidence = {
+  reason: string;
+  rejectedSha256: string;
+  requests: AiRequestReceipt[];
+  responseSha256: string | null;
+  completion: AiResponse["completion"] | null;
+  responseValidation: { state: "valid" | "invalid"; reason: string | null } | null;
+};
+
+/**
+ * Which rejections get a repair request. A findings JSON problem goes to the
+ * findings recovery below, which extracts the findings the review names. A
+ * count mismatch between the table and the JSON goes there too. The other
+ * reasons are presentation slips: headings, the Score table, the Findings
+ * Summary table and the content after it.
+ */
+export function isRepairableRejection(reason: string): boolean {
+  return !reason.startsWith("Findings JSON") && reason !== "Findings Summary counts do not match findings JSON";
+}
+
+const REPAIR_INSTRUCTION = `Your review was rejected: {{reason}}. Output the same review again in the exact format of the instructions: the three headings, the Score table with every category row and the Overall row, the Findings Summary table with nothing after its rows, and the findings JSON block with the same findings. Do not add findings. Keep the Summary under 200 words.`;
 
 const FINDINGS_RECOVERY_TEMPLATE = `You previously wrote this code review but {{missingDescription}}. The Findings Summary table shows {{total}} total findings.
 
@@ -149,8 +177,42 @@ function scoreStructure(text: string) {
  * the report heading (`## 🐙 Octopus Review — PR #12`) and an Overall row whose
  * two cells are not both bold, and horizontal spacing around score slashes.
  */
+const SUMMARY_SECTION = /^(### Findings Summary[ \t]*\r?\n)([\s\S]*?)(?=^#{1,6} |<!-- OCTOPUS_FINDINGS_START -->|(?![\s\S]))/m;
+const CONFLICT_RISK_OPENING = /^>\s*⚠️\s+\*\*Conflict Risk\*\*:\s+\S/;
+const CONFLICT_RISK_CONTINUATION = /^>\s+[^>#\s]/;
+
+/**
+ * Drops prose after the rows of the Findings Summary table. The model adds a
+ * closing sentence there now and then, and the validator rejects the whole
+ * review for it. A Conflict Risk blockquote stays. A line that holds a table
+ * cell or starts a heading stays too, so the validator still rejects a hidden
+ * table or heading. Logs the count it dropped.
+ */
+export function dropTrailingSummaryProse(text: string): string {
+  const match = SUMMARY_SECTION.exec(text);
+  if (!match) return text;
+  const lines = match[2].split("\n");
+  let end = 0;
+  while (end < lines.length && lines[end].trim().startsWith("|")) end++;
+  const kept = lines.slice(0, end);
+  let dropped = 0;
+  let inConflictRisk = false;
+  for (const line of lines.slice(end)) {
+    const trimmed = line.trim();
+    if (trimmed === "") { kept.push(line); continue; }
+    if (CONFLICT_RISK_OPENING.test(trimmed)) { inConflictRisk = true; kept.push(line); continue; }
+    if (inConflictRisk && CONFLICT_RISK_CONTINUATION.test(trimmed) && !trimmed.includes("|")) { kept.push(line); continue; }
+    inConflictRisk = false;
+    if (trimmed.includes("|") || trimmed.startsWith("#")) { kept.push(line); continue; }
+    dropped++;
+  }
+  if (dropped === 0) return text;
+  console.log(`[review-assessment] Dropped ${dropped} line${dropped === 1 ? "" : "s"} after the Findings Summary table`);
+  return text.slice(0, match.index) + match[1] + kept.join("\n") + text.slice(match.index + match[0].length);
+}
+
 export function normalizeReviewResponse(text: string, inputComplete = true): string {
-  return ensureOverallRow(inputComplete, text
+  return ensureOverallRow(inputComplete, dropTrailingSummaryProse(text
     .replace(/(^### Score[ \t]*\r?\n)([\s\S]*?)(?=^#{1,6} |(?![\s\S]))/gm, (_section, heading: string, body: string) => heading + body.split("\n").map(line => {
       const cells = scoreCells(line);
       if (cells.length !== 5 || !SCORE_CATEGORIES.some(category => cells[1].trim().replaceAll("**", "") === category)) return line;
@@ -158,7 +220,7 @@ export function normalizeReviewResponse(text: string, inputComplete = true): str
       return cells.join("|");
     }).join("\n"))
     .replace(/^## 🐙 Octopus Review\b[^\n]*$/gm, REVIEW_HEADING)
-    .replace(/^\|\s*(?:\*\*)?Overall(?:\*\*)?\s*\|\s*(?:\*\*)?([1-5]\/5|N\/A|Not assessed)(?:\*\*)?\s*\|([^\n]*)$/gm, "| **Overall** | **$1** |$2"));
+    .replace(/^\|\s*(?:\*\*)?Overall(?:\*\*)?\s*\|\s*(?:\*\*)?([1-5]\/5|N\/A|Not assessed)(?:\*\*)?\s*\|([^\n]*)$/gm, "| **Overall** | **$1** |$2")));
 }
 
 const CATEGORY_ROWS: readonly string[] = SCORE_CATEGORIES.filter(category => category !== "Overall");
@@ -296,6 +358,30 @@ export function recordNoModelAssessment(coverage: ReviewCoverage): void {
   };
 }
 
+/**
+ * The one repair request: the conversation so far, the rejected review as the
+ * assistant turn, and the instruction with the rejection reason. The primary
+ * admission is not sent again. A request that fails leaves the first response
+ * in place and returns null.
+ */
+async function repairReviewResponse(
+  request: AiCreateParams, rejected: AiResponse, reason: string,
+  call: (request: AiCreateParams) => Promise<AiResponse>, repair: ReviewRepairEvidence,
+): Promise<AiResponse | null> {
+  const { completeReviewAdmission: _admission, ...rest } = request;
+  const repairRequest: AiCreateParams = { ...rest,
+    messages: [...request.messages, { role: "assistant", content: rejected.text }, { role: "user", content: REPAIR_INSTRUCTION.replace("{{reason}}", reason) }],
+    onRequest: receipt => repair.requests.push(receipt),
+  };
+  try {
+    return await call(repairRequest);
+  } catch (error) {
+    repair.responseValidation = { state: "invalid", reason: "Repair request failed or was interrupted" };
+    console.log(`[review-assessment] Repair request failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 /** The caller persists assessment evidence without response text alongside the final outcome. */
 export async function executeCoveredReview(
   request: AiCreateParams, coverage: ReviewCoverage, template: string,
@@ -303,7 +389,7 @@ export async function executeCoveredReview(
 ): Promise<AiResponse> {
   const assessment: ReviewAssessment = {
     state: "incomplete", reason: "Provider did not return a completed assessment", model: request.model,
-    policySha256: sha256(JSON.stringify({ policy: "bounded-review-assessment-v2", coverage })),
+    policySha256: sha256(JSON.stringify({ policy: "bounded-review-assessment-v3", coverage })),
     templateSha256: sha256(template), requests: [], responseSha256: null, completion: null,
   };
   coverage.assessment = assessment;
@@ -324,11 +410,38 @@ export async function executeCoveredReview(
   }
   assessment.responseSha256 = sha256(response.text);
   assessment.completion = response.completion ?? null;
-  const validationError = reviewResponseValidationError(response.text, coverage.complete);
-  assessment.responseValidation = { state: validationError === null ? "valid" : "invalid", reason: validationError, ...(validationError !== null ? { scoreStructure: scoreStructure(response.text) } : {}) };
+  let validationError = reviewResponseValidationError(response.text, coverage.complete);
   if (validationError !== null) console.log(`[review-assessment] Response rejected: ${validationError}; completion=${response.completion?.reason ?? "unknown"}`);
-  const observed = assessment.requests.length === 1 && assessment.requests[0].model === response.model
-    && assessment.requests[0].provider === response.provider && assessment.requests[0].inputPreserved;
+  // The receipts of the response that the review publishes: the primary
+  // request, or the repair request when the repair was accepted. A rejected
+  // repair leaves the primary response and its reason in place, and its own
+  // reason in the repair evidence. A capacity-admitted complete review gets
+  // no repair: its admission covers one generation.
+  let finalReceipts = assessment.requests;
+  if (validationError !== null && !request.completeReviewAdmission && isRepairableRejection(validationError)) {
+    const repair: ReviewRepairEvidence = { reason: validationError, rejectedSha256: assessment.responseSha256, requests: [], responseSha256: null, completion: null, responseValidation: null };
+    assessment.repair = repair;
+    const repaired = await repairReviewResponse(request, response, validationError, call, repair);
+    if (repaired !== null) {
+      repair.responseSha256 = sha256(repaired.text);
+      repair.completion = repaired.completion ?? null;
+      const repairError = reviewResponseValidationError(repaired.text, coverage.complete);
+      repair.responseValidation = { state: repairError === null ? "valid" : "invalid", reason: repairError };
+      if (repairError === null) {
+        console.log(`[review-assessment] Response repaired: ${validationError}`);
+        response = repaired;
+        assessment.responseSha256 = repair.responseSha256;
+        assessment.completion = repair.completion;
+        validationError = null;
+        finalReceipts = repair.requests;
+      } else {
+        console.log(`[review-assessment] Response rejected: ${repairError}; completion=${repaired.completion?.reason ?? "unknown"}; after repair`);
+      }
+    }
+  }
+  assessment.responseValidation = { state: validationError === null ? "valid" : "invalid", reason: validationError, ...(validationError !== null ? { scoreStructure: scoreStructure(response.text) } : {}) };
+  const observed = assessment.requests.length === 1 && finalReceipts.length === 1 && finalReceipts[0].model === response.model
+    && finalReceipts[0].provider === response.provider && finalReceipts[0].inputPreserved;
   const failures = [
     ...(!observed ? ["Actual provider request provenance unavailable"] : []),
     ...(validationError !== null ? [validationError] : []),
