@@ -41,7 +41,7 @@ export async function postOssReview(params: PostOssReviewParams): Promise<PostOs
   const { owner, repo, prNumber, findings, diff, summary, botToken } = params;
 
   const diffLines = parseDiffLines(diff);
-  const comments: ReviewComment[] = buildInlineComments(findings, diffLines, "github");
+  const comments: ReviewComment[] = buildInlineComments(findings, diffLines, "github", diff);
 
   const body =
     (summary && summary.trim().length > 0 ? summary : "No issues found. Looking good!") +
