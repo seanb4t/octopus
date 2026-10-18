@@ -1,4 +1,4 @@
-import { generationBudget } from "./review-outcome-stub";
+import { generationBudget, outcomePublications } from "./review-outcome-stub";
 import { mock } from "bun:test";
 import assert from "node:assert/strict";
 import { inspect } from "node:util";
@@ -1358,6 +1358,7 @@ if (approveCleanReviews) {
   assert.equal(reused.assessment?.model, first.assessment?.model);
   assert.equal(reused.headSha, "c".repeat(40));
   assert.equal(reused.diffFingerprint, first.diffFingerprint);
+  assert.deepEqual(outcomePublications.at(-1), { state: "reused", archiveId: archived.at(-1)!.id }, "the reused attempt records its outcome");
   assert.deepEqual(archived.at(-1)!.outcome, { ...firstOutcome, reviewId: null }, "the outcome is carried forward");
   assert.equal(published.length, publishedBefore + 1, "one review for the reused attempt");
   assert.equal(published.at(-1)!.event, "APPROVE", "the approval of the reused attempt comes back");
