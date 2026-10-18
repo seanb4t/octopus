@@ -11,10 +11,10 @@ const run = promisify(execFile);
 
 mock.module("server-only", () => ({}));
 
-let mockDeleteRepoFileChunks = mock(() => Promise.resolve());
-let mockEnsureCollection = mock(() => Promise.resolve());
-let mockUpsertChunks = mock(() => Promise.resolve());
-let mockDeleteRepoChunks = mock(() => Promise.resolve());
+const mockDeleteRepoFileChunks = mock(() => Promise.resolve());
+const mockEnsureCollection = mock(() => Promise.resolve());
+const mockUpsertChunks = mock(() => Promise.resolve());
+const mockDeleteRepoChunks = mock(() => Promise.resolve());
 
 mock.module("@/lib/qdrant", () => ({
   deleteRepoFileChunks: (...args: unknown[]) => mockDeleteRepoFileChunks(...args),
