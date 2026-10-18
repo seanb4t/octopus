@@ -96,7 +96,8 @@ export async function exerciseStorageRace(scenario: string, repo: Repository) {
     const { indexRepository, incrementalIndex } = await import("@/lib/indexer");
     const { runRepositoryIndex } = await import("@/lib/repository-index-completion");
     const { prepareRepoForLocalIndex, claimLocalIndexBatch, indexLocalBatch, recordLocalIndexProgress, markLocalIndexFailed } = await import("@/lib/index-local");
-    const { deleteRepoFileChunks, upsertChunks, getRepoChunks, searchSimilarChunks, searchCodeChunksAcrossRepos, getQdrantClient, ensureCollection } = await import("@/lib/qdrant");
+    const { deleteRepoFileChunks, upsertChunks, selectAnalysisChunks, searchSimilarChunks, searchCodeChunksAcrossRepos, getQdrantClient, ensureCollection } = await import("@/lib/qdrant");
+    const getRepoChunks = async (repoId: string) => (await selectAnalysisChunks(repoId, 50)).chunks.map(chunk => chunk.text);
     const { buildRepoGraph } = await import("@/lib/repo-graph");
     const snapshot = () => prisma.repository.findUniqueOrThrow({ where: { id: repo.id } });
     const claim = async () => {
