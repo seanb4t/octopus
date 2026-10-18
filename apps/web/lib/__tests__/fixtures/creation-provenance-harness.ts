@@ -52,6 +52,7 @@ const provenance = await import("@/lib/creation-provenance");
 const { createOrgForUser } = await import("@/lib/org-create");
 const { canUserCreateOrg, hasEverOwnedOrg } = await import("@/lib/org-limits");
 const { toBaseSlug, randomSlugSuffix } = await import("@/lib/slug");
+const { orgLimitReached } = await import("@/lib/constants");
 const root = new URL("../../../../../", import.meta.url);
 const source = async (path: string) => readFile(new URL(path, root), "utf8");
 const parse = async (path: string) => ts.createSourceFile(path, await source(path), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -210,7 +211,7 @@ try {
         prisma, getUser: async () => person, canUserCreateOrg, hasEverOwnedOrg, toBaseSlug, randomSlugSuffix,
         assessWelcomeCredit: async () => ({ eligible: false }), logWelcomeOutcome: () => {},
         organizationCreationProvenance: provenance.organizationCreationProvenance,
-        MAX_OWNED_ORGS_PER_USER: 10, WELCOME_FREE_CREDITS: 0, WELCOME_DEFERRED_REASON: "deferred_no_oauth",
+        MAX_OWNED_ORGS_PER_USER: 10, orgLimitReached: (ownedCount: number) => orgLimitReached(ownedCount, 10), WELCOME_FREE_CREDITS: 0, WELCOME_DEFERRED_REASON: "deferred_no_oauth",
         isTextFormData: () => true, cookies: async () => ({ set: () => {} }), revalidatePath: () => {}, redirect: () => { throw stop; },
       });
       const form = new FormData(); form.set("name", "Fixture");
