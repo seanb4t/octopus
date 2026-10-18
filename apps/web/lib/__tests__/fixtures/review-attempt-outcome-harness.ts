@@ -380,7 +380,7 @@ try {
         return 123;
       },
     }));
-    mock.module("@/lib/github", () => ({ createPullRequestReview: async () => 1, updateCheckRun: async () => {} }));
+    mock.module("@/lib/github", () => ({ createPullRequestReview: async () => 1, updateCheckRun: async () => {}, listPullRequestReviewComments: async () => [] }));
     mock.module("@/lib/pubby", () => ({ pubby: { trigger: async () => {} } }));
     mock.module("@/lib/events", () => ({ eventBus: { emit: () => {} } }));
     const { handleLargeReviewResult } = await import("../../large-review-result");
