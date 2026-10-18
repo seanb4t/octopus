@@ -12,7 +12,7 @@ export function reviewKind(coverage?: ReviewCoverage, large = false): ReviewKind
   if (coverage.complete && coverage.inventoryComplete && coverage.files.length === 0) return "empty";
   if (coverage.complete && coverage.files.length > 0 && coverage.files.every(f => f.state === "excluded")) return "not_required";
   if (!coverage.assessment) return "not_assessed";
-  if (coverage.assessment.state === "completed") return coverage.complete ? "substantive" : "partial";
+  if (coverage.assessment.state === "completed" || coverage.assessment.state === "reused") return coverage.complete ? "substantive" : "partial";
   return "incomplete";
 }
 

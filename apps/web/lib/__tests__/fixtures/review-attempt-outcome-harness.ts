@@ -65,6 +65,7 @@ try {
       "policy-covered-incomplete": { files: ["excluded", "supplied"], complete: true, state: "incomplete", expected: "incomplete" },
       "policy-all-excluded-assessed": { files: ["excluded", "excluded"], complete: true, state: "completed", expected: "not_required" },
       "policy-inventory-incomplete": { files: ["excluded", "excluded"], complete: false, inventory: false, state: "incomplete", expected: "incomplete" },
+      "policy-reused": { files: ["excluded", "supplied"], complete: true, state: "reused", expected: "substantive" },
     };
     const input = cases[scenario];
     assert.ok(input, "Unknown policy fixture");

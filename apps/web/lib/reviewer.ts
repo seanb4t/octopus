@@ -1436,9 +1436,17 @@ async function processReviewInternal(pullRequestId: string, executionWindow?: Re
       );
       await saveReviewAttempt(attemptId, pr.id, coverage, body, undefined, outcome);
       attemptSaved = true;
-      if (isGitHub) reviewCommentId = await publishMainComment(body, body);
-      else if (reviewCommentId) await providerUpdateComment(reviewCommentId, body);
-      else await publishMainComment(body);
+      outcomeArchiveId = attemptId;
+      outcomeRecord.assessment(coverage, attemptId);
+      recordReviewMain = true;
+      try {
+        await outcomeRecord.publish(async () => {
+          if (isGitHub) reviewCommentId = await publishMainComment(body, body);
+          else if (reviewCommentId) await providerUpdateComment(reviewCommentId, body);
+          else return await publishMainComment(body);
+          return reviewCommentId;
+        });
+      } finally { recordReviewMain = false; }
       // The approval of the reused attempt comes back under the same gate as
       // a clean review, with the findings count of that attempt.
       const approve = isGitHub && installationId && priorCommentsKnown && outcome.event === "APPROVE" && shouldApproveReview({
