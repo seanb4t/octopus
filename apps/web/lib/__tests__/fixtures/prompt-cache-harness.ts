@@ -41,7 +41,7 @@ class FakeOpenAI {
   }; } };
   chat = { completions: { create: async (body: unknown) => { calls.push({ provider: "chat", key: this.options.apiKey, body: body as Body }); return {
     choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 15000, completion_tokens: 0, prompt_tokens_details: { cached_tokens: 10000, cache_write_tokens: openaiWrites } },
-  }; } } };
+  }; }, stream(body: unknown) { return { finalChatCompletion: () => this.create(body) }; } } };
 }
 class FakeAnthropic {
   constructor(private options: { apiKey?: string }) {}

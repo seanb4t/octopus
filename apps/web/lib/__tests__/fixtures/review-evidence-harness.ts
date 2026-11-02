@@ -12,7 +12,7 @@ class FakeOpenAI {
     received = request;
     sdkCalls++;
     return { choices: [{ message: { content: responseText }, finish_reason: "stop" }] };
-  } } };
+  }, stream(request: unknown) { return { finalChatCompletion: () => this.create(request) }; } } };
 }
 mock.module("openai", () => ({ default: FakeOpenAI }));
 
