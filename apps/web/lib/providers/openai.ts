@@ -107,11 +107,14 @@ export const openaiProvider: Provider = {
       messages.push({ role: m.role, content: stripLoneSurrogates(m.content) });
     }
 
-    const response = await client.chat.completions.create(observeAiRequest(params, "openai", {
+    // Stream so the response headers arrive at once. A non-streamed call that
+    // sends no headers in 300 seconds hits the undici headersTimeout of Node's fetch.
+    const response = await client.chat.completions.stream(observeAiRequest(params, "openai", {
       model: params.model,
       max_completion_tokens: params.maxTokens,
       ...(cacheKey ? { prompt_cache_key: cacheKey } : {}),
       messages,
+      stream_options: { include_usage: true },
       ...(params.responseSchema
         ? {
             response_format: {
@@ -124,7 +127,7 @@ export const openaiProvider: Provider = {
             },
           }
         : {}),
-    }));
+    })).finalChatCompletion();
 
     const text = response.choices[0]?.message?.content ?? "";
 
