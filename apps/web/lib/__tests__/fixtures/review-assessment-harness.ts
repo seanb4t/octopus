@@ -16,7 +16,7 @@ class FakeOpenAI {
     if (!JSON.stringify(request).includes("Your review was rejected: ")) received = request;
     if (interrupted) throw new Error("simulated interrupted response");
     return output;
-  } } };
+  }, stream(request: unknown) { return { finalChatCompletion: () => this.create(request) }; } } };
   responses = { create: async (request: unknown) => { received = request; return output; } };
 }
 mock.module("openai", () => ({ default: FakeOpenAI }));

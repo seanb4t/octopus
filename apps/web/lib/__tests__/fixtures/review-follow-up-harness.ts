@@ -64,7 +64,7 @@ class FakeOpenAI {
     providerCalls++;
     if (providerInterrupted) throw new Error("fixture provider interrupted");
     return { model: "gpt-fixture", choices: [{ finish_reason: "stop", message: { content: responseOverride ?? (malformed ? "Malformed response" : report) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
-  } } };
+  }, stream(request: typeof received) { return { finalChatCompletion: () => this.create(request) }; } } };
 }
 mock.module("openai", () => ({ default: FakeOpenAI }));
 const finding = {

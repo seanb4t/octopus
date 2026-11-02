@@ -27,7 +27,7 @@ mock.module("openai", () => ({ default: class {
   chat = { completions: { create: async () => {
     if (failure) throw failure;
     return { choices: [{ finish_reason: "stop", message: { content: "complete" } }] };
-  } } };
+  }, stream() { return { finalChatCompletion: () => this.create() }; } } };
 } }));
 mock.module("@anthropic-ai/sdk", () => ({ default: class {
   static APIUserAbortError = class extends Error {};
