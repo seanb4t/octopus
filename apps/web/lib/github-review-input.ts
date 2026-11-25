@@ -2,7 +2,7 @@ import { reviewFilePriority, type ReviewInput, type ReviewFileInput } from "@/li
 import { createBinaryAssetEvidence, indexGitHubBinarySections } from "@/lib/review-binary-assets";
 import { indexGitHubDiffSections } from "@/lib/github-diff-sections";
 import { createEmptyFileEvidence } from "@/lib/github-empty-files";
-import { recoverAddedGitHubTextPatch } from "@/lib/github-text-patches";
+import { recoverGitHubTextPatch } from "@/lib/github-text-patches";
 
 type PullMetadata = { head?: { sha?: string }; base?: { sha?: string }; changed_files?: number };
 type ChangedFile = { filename: string; previous_filename?: string; status: string; patch?: string | null; additions?: number; deletions?: number; sha?: string };
@@ -43,7 +43,7 @@ export async function fetchGitHubReviewInput(options: {
       const remaining = source ? options.maxPatchChars * 2 - sourceChars : options.maxPatchChars / 2 - supportingChars;
       const reviewFile: ReviewFileInput = { path: file.filename, previousPath: file.previous_filename, change: file.status, additions: file.additions, deletions: file.deletions, blobSha: file.sha };
       const availablePatch = file.patch === undefined
-        ? recoverAddedGitHubTextPatch(reviewFile, revision, textSections.get(file.filename))
+        ? recoverGitHubTextPatch(reviewFile, revision, textSections.get(file.filename))
         : file.patch;
       const patch = typeof availablePatch === "string" && availablePatch.length <= Math.min(options.maxPatchChars, remaining) ? availablePatch : undefined;
       if (source) sourceChars += patch?.length ?? 0;
