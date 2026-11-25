@@ -21,12 +21,19 @@ mock.module("@octopus/db", () => ({
 
 const { createAiMessage } = await import("@/lib/ai-router");
 
+// The provider streams chat calls, so a 200 answers as OpenAI answers a streamed request.
+const streamedCompletion = (content: string) => new Response([
+  { choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] },
+  { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+  { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+].map(chunk => `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 1, model: "gpt-fixture", ...chunk })}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
 // Local OpenAI emulator: records the credential the provider actually sends.
 const seenAuth: (string | null)[] = [];
 const server = Bun.serve({
   port: 0,
-  fetch(req) {
+  async fetch(req) {
     seenAuth.push(req.headers.get("authorization"));
+    if ((await req.json() as { stream?: boolean }).stream) return streamedCompletion("emulated");
     return Response.json({
       choices: [{ message: { content: "emulated" }, finish_reason: "stop" }],
       usage: { prompt_tokens: 1, completion_tokens: 1 },

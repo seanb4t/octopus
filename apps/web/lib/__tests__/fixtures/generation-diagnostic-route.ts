@@ -14,10 +14,14 @@ mock.module("@octopus/db", () => ({ prisma: {
 } }));
 mock.module("@/lib/crypto", () => ({ decryptStringMaybeLegacy: (value: string) => value }));
 mock.module("openai", () => ({ default: class {
-  chat = { completions: { create: async () => {
-    calls++;
-    throw Object.assign(new Error("synthetic-route-secret", { cause: { message: "terminated", request_id: "req_syntheticroutesecret" } }), { status: 503 });
-  } } };
+  chat = { completions: {
+    create: async () => {
+      calls++;
+      throw Object.assign(new Error("synthetic-route-secret", { cause: { message: "terminated", request_id: "req_syntheticroutesecret" } }), { status: 503 });
+    },
+    // The provider streams chat calls; the stream fails as the plain call does.
+    stream(request: unknown) { return { finalChatCompletion: () => this.create(request) }; },
+  } };
 } }));
 globalThis.fetch = (() => { throw new Error("Unexpected network access"); }) as typeof fetch;
 const { openaiProvider } = await import("../../providers/openai");

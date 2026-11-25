@@ -12,7 +12,10 @@ const chunk = (delta: object, finish: string | null = null) =>
 const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
   const body = await req.json() as Body;
   bodies.push(body);
-  const events = [chunk({ role: "assistant", content: "Hello " }), chunk({ content: "world" }), chunk({}, "stop")];
+  // The SDK parses a json_schema answer, so a schema request gets JSON, as a strict schema guarantees.
+  const events = body.response_format
+    ? [chunk({ role: "assistant", content: '{"ok":' }), chunk({ content: "true}" }), chunk({}, "stop")]
+    : [chunk({ role: "assistant", content: "Hello " }), chunk({ content: "world" }), chunk({}, "stop")];
   if (body.stream_options?.include_usage) {
     events.push({ id: "c1", object: "chat.completion.chunk", created: 1, model: "octopus-review", choices: [],
       usage: { prompt_tokens: 11, completion_tokens: 2, total_tokens: 13, prompt_tokens_details: { cached_tokens: 5 } } } as never);
@@ -35,7 +38,7 @@ try {
   const schema = { name: "verdict", schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false } };
   const structured = await openaiProvider.create({ model: "octopus-utility", maxTokens: 64, messages: [{ role: "user", content: "u" }], responseSchema: schema });
   assert.ok(bodies.at(-1)?.response_format);
-  assert.equal(structured.text, "Hello world");
+  assert.equal(structured.text, '{"ok":true}');
   console.log("PASS streamed call with a response schema");
 } finally {
   server.stop(true);

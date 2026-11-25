@@ -14,10 +14,17 @@ mock.module("@octopus/db", () => ({ prisma: {
 mock.module("@/lib/crypto", () => ({ decryptStringMaybeLegacy: (value: string) => value }));
 let requests = 0;
 let responses: Array<{ status: number; headers?: Record<string, string> }> = [];
-const server = Bun.serve({ port: 0, fetch() {
+// The provider streams chat calls, so a 200 answers as OpenAI answers a streamed request.
+const streamedCompletion = (content: string) => new Response([
+  { choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] },
+  { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+  { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+].map(chunk => `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 1, model: "gpt-fixture", ...chunk })}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+const server = Bun.serve({ port: 0, async fetch(req) {
   requests++;
   const next = responses.shift() ?? { status: 503 };
   if (next.status !== 200) return Response.json({ error: { message: "synthetic-route-secret", type: "error" } }, { status: next.status, headers: { "retry-after-ms": "1", ...next.headers } });
+  if (new URL(req.url).pathname.endsWith("/chat/completions") && (await req.json() as { stream?: boolean }).stream) return streamedCompletion("emulated");
   return Response.json({ model: "gpt-fixture", choices: [{ message: { content: "emulated" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
 } });
 process.env.OPENAI_BASE_URL = `http://127.0.0.1:${server.port}/v1`;
@@ -81,7 +88,9 @@ try {
   const response = await executeCoveredReview({ model: "gpt-fixture", maxTokens: 16, maxRetries: 0, messages: [{ role: "user", content: "fixture" }] }, coverage, "fixture",
     request => createAiMessage(request, "org"), { window, confirm: async failure => { confirmations++; return credentialRouteUnchanged(failure, "org"); } });
   assert.equal(response.provider, "openai");
-  assert.equal(requests - before, 2);
+  // The emulated answer is not a valid review, so the fork sends its one repair request after the retry.
+  assert.equal(coverage.assessment?.repair?.requests.length, 1);
+  assert.equal(requests - before - 1, 2);
   assert.equal(confirmations, 1);
   assert.deepEqual(coverage.assessment?.attempts?.map(attempt => [attempt.failure.code, attempt.requests.length]), [["http_503", 1]]);
   assert.equal(coverage.assessment?.requests.length, 1);
