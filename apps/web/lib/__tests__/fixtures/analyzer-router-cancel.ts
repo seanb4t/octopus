@@ -12,7 +12,9 @@ let providerCalls = 0;
 let usageLogs = 0;
 let dbReads = 0;
 mock.module("server-only", () => ({}));
-mock.module("@/lib/qdrant", () => ({ getRepoChunks: async () => ["synthetic code"], getKnowledgeChunksByOrg: async () => [] }));
+// The fork's analyzer reads chunks with their paths and dates, not bare text.
+const chunk = { text: "synthetic code", filePath: "src/index.ts", kind: "code" as const, lastModifiedAt: null };
+mock.module("@/lib/qdrant", () => ({ selectAnalysisChunks: async () => ({ chunks: [chunk], medianCode: null }), getKnowledgeChunksByOrg: async () => [] }));
 mock.module("@/lib/cost", () => ({ isOrgOverSpendLimit: async () => false }));
 mock.module("@/lib/ai-client", () => ({ getReviewModel: async () => "gpt-fixture" }));
 mock.module("@/lib/ai-usage", () => ({ logAiUsage: async () => { usageLogs++; } }));

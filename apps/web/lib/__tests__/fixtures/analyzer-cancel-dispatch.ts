@@ -10,8 +10,10 @@ let usageLogs = 0;
 let chunkReads = 0;
 let usage: Record<string, unknown> | undefined;
 mock.module("server-only", () => ({}));
+// The fork's analyzer reads chunks with their paths and dates, not bare text.
+const chunk = { text: "synthetic code", filePath: "src/index.ts", kind: "code" as const, lastModifiedAt: null };
 mock.module("@/lib/qdrant", () => ({
-  getRepoChunks: async () => { chunkReads++; return ["synthetic code"]; },
+  selectAnalysisChunks: async () => { chunkReads++; return { chunks: [chunk], medianCode: null }; },
   getKnowledgeChunksByOrg: async () => [],
 }));
 mock.module("@/lib/cost", () => ({ isOrgOverSpendLimit: async () => scenario === "spend-limit" }));
