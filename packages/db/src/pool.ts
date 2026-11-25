@@ -1,13 +1,15 @@
-import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * The connection pool of the Prisma adapter. The error listener keeps a
- * connection that Postgres closes while idle from raising an uncaught
- * exception in the process. The pool drops that client and opens a new one on
- * the next query.
+ * The Prisma adapter with a log line for the errors its connection pool emits,
+ * such as a connection that Postgres closed while idle. The adapter listens on
+ * the pool, so the process keeps serving; without the callback such an error
+ * is visible only under DEBUG. The pool drops that client and opens a new one
+ * on the next query.
  */
-export function createPool(connectionString: string | undefined, max?: number): Pool {
-  const pool = new Pool({ connectionString, ...(max === undefined ? {} : { max }) });
-  pool.on("error", (err) => console.error("[db] pool error:", err.message));
-  return pool;
+export function createAdapter(connectionString: string | undefined, max?: number): PrismaPg {
+  return new PrismaPg(
+    { connectionString, ...(max === undefined ? {} : { max }) },
+    { onPoolError: (err) => console.error("[db] pool error:", err.message) },
+  );
 }
